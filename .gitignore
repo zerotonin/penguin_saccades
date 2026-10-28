@@ -16,3 +16,7 @@ results/
 *.mp4
 *.avi
 .vscode/
+*.slp
+sleap/models/
+sleap/predictions/
+sleap/logs/
