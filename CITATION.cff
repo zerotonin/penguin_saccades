@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+title: "penguin_saccades: saccadic gaze strategy analysis for swimming penguins"
+message: "If you use this software, please cite it as below."
+type: software
+license: MIT
+authors:
+  - family-names: Geurten
+    given-names: Bart R. H.
+    orcid: "https://orcid.org/0000-0002-1816-3241"
+  - family-names: Oepen
+    given-names: Anne
+repository-code: "https://github.com/zerotonin/penguin_saccades"
+keywords:
+  - penguin
+  - saccade
+  - gaze strategy
+  - intersaccadic interval
+  - DeepLabCut
+version: "0.1.0"
+date-released: "2026-10-28"

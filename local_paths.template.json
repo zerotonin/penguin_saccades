@@ -1,0 +1,23 @@
+{
+  "active_profile": "local",
+  "profiles": {
+    "local": {
+      "data_root": "/path/to/your/penguin_project",
+      "open_trajectories_dir": "/path/to/your/penguin_project/penguins/sorted_and_filtered",
+      "open_video_index_csv": "/path/to/your/penguin_project/penguins/Penguin_video_data.csv",
+      "closed_dlc_dir": "/path/to/your/penguin_project/pengu_head_movies",
+      "closed_video_dir": "/path/to/your/penguin_project/pengu_head_movies",
+      "output_dir": "/path/to/your/penguin_project/results"
+    },
+    "hpc": {
+      "data_root": "/path/to/cluster/penguin_project",
+      "open_trajectories_dir": "/path/to/cluster/penguin_project/penguins/sorted_and_filtered",
+      "open_video_index_csv": "/path/to/cluster/penguin_project/penguins/Penguin_video_data.csv",
+      "closed_dlc_dir": "/path/to/cluster/penguin_project/pengu_head_movies",
+      "closed_video_dir": "/path/to/cluster/penguin_project/pengu_head_movies",
+      "output_dir": "/path/to/cluster/penguin_project/results",
+      "partition": "<your-slurm-partition>",
+      "account": "<your-slurm-account>"
+    }
+  }
+}

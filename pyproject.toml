@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "penguin_saccades"
+dynamic = ["version"]
+description = "Saccadic gaze strategy of swimming penguins: body and head saccade detection, intersaccadic-interval content, and re-randomisation statistics."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Bart R. H. Geurten", email = "bart.geurten@otago.ac.nz"},
+    {name = "Anne Oepen"},
+]
+keywords = [
+    "penguin", "saccade", "gaze strategy", "optic flow", "intersaccadic interval",
+    "deeplabcut", "kinematics", "behavioural-analysis",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "matplotlib>=3.9",
+    "tables>=3.8",
+    "tqdm>=4.60",
+    "rerandomstats @ git+https://github.com/zerotonin/reRandomStats.git",
+]
+
+[project.optional-dependencies]
+video = ["opencv-python>=4.8"]
+dev = ["pytest>=7.0", "pytest-cov", "ruff>=0.6", "sphinx", "sphinx-rtd-theme"]
+
+[project.scripts]
+penguin-saccades = "penguin_saccades.cli:main"
+
+[project.urls]
+Repository = "https://github.com/zerotonin/penguin_saccades"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools_scm]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = ["**/_legacy"]
