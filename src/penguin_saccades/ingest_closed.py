@@ -110,15 +110,17 @@ def process_closed_trajectory(
     df_dlc: pd.DataFrame,
     spec: C.DatasetSpec = C.DATASET_CLOSED,
     body_length_m: float = C.GENTOO_BODY_LENGTH_M,
+    likelihood_threshold: float | None = None,
 ) -> pd.DataFrame:
-    """Gated DLC poses to the shared trajectory schema.
+    """Gated poses (DeepLabCut or SLEAP) to the shared trajectory schema.
 
     Scale: the median beak-to-tail length in pixels is equated with
-    ``body_length_m``.  Translation is the neck displacement.
+    ``body_length_m``.  Translation is the neck displacement.  SLEAP point
+    scores are peak heights, so pass ``C.SLEAP_SCORE_THRESHOLD`` for them.
     """
     fps = spec.frame_rate_hz
     sigma = sigma_frames(spec.smoothing_sigma_s, fps)
-    gated = gate_likelihood(df_dlc)
+    gated = gate_likelihood(df_dlc, threshold=likelihood_threshold)
     px_per_m = body_length_px(gated) / body_length_m
     head_tail, head_tip = C.HEAD_VECTOR
     body_tail, body_tip = C.BODY_VECTOR

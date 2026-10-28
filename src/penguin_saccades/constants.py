@@ -106,6 +106,7 @@ DLC_KEYPOINTS: tuple[str, ...] = ("beak", "neck", "left_fin", "right_fin", "caud
 HEAD_VECTOR: tuple[str, str] = ("neck", "beak")     # tail of vector, tip of vector
 BODY_VECTOR: tuple[str, str] = ("caudal", "neck")
 DLC_LIKELIHOOD_THRESHOLD: float = 0.75
+SLEAP_SCORE_THRESHOLD: float = 0.3      # TO RATIFY: peak heights, not probabilities; median 0.65
 # Gaps shorter than this (frames) are linearly interpolated; longer gaps
 # split the recording into separate segments.
 MAX_INTERPOLATION_GAP_FRAMES: int = 5

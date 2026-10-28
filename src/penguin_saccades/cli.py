@@ -77,9 +77,13 @@ def stage_ingest(out: Path) -> None:
         df["source_file"] = path.name
         trajectory_id += 1
         parts.append(df)
-    pose_files, reader = _closed_pose_files()
+    pose_files, reader, threshold = _closed_pose_files()
     for path in tqdm(pose_files, desc="data set 2 (closed)"):
-        df = process_closed_trajectory(reader(path))
+        try:
+            df = process_closed_trajectory(reader(path), likelihood_threshold=threshold)
+        except ValueError as err:
+            print(f"[ingest] skipped {path.name}: {err}")
+            continue
         if df.empty:
             continue
         df[C.COL_TRAJECTORY] = trajectory_id
@@ -255,8 +259,8 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame]]:
-    """SLEAP analysis files when ``closed_sleap_dir`` is configured and populated, else DeepLabCut."""
+def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame], float]:
+    """Pose files, their reader and the matching score gate: SLEAP when configured, else DeepLabCut."""
     try:
         sleap_dir = config.get_path("closed_sleap_dir")
     except config.PathConfigError:
@@ -265,8 +269,8 @@ def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame]]:
         files = sorted(sleap_dir.glob("*.analysis.h5"))
         if files:
             print(f"[ingest] closed pool from SLEAP: {sleap_dir}")
-            return files, lambda p: focal_track(read_sleap_analysis(p))
-    return _dlc_files(config.get_path("closed_dlc_dir")), read_dlc
+            return files, lambda p: focal_track(read_sleap_analysis(p)), C.SLEAP_SCORE_THRESHOLD
+    return _dlc_files(config.get_path("closed_dlc_dir")), read_dlc, C.DLC_LIKELIHOOD_THRESHOLD
 
 
 def _dlc_files(closed_dir: Path) -> list[Path]:

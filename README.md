@@ -81,6 +81,7 @@ manuscript. Each is a single constant; change it there and rerun.
 | `ASSOCIATION_WINDOW_S`               | 1.0 s         | head-body pairing window, not stated in legacy   |
 | `GENTOO_BODY_LENGTH_M`               | 0.80 m        | scale for data set 2                             |
 | `DLC_LIKELIHOOD_THRESHOLD`           | 0.75          | legacy code had no gating                        |
+| `SLEAP_SCORE_THRESHOLD` | 0.3 | SLEAP point scores are peak heights (median 0.65 on the re-tracked clips), not probabilities |
 
 ## Development
 
