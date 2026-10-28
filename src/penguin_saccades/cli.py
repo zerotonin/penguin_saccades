@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
@@ -21,9 +22,24 @@ from tqdm import tqdm
 
 from penguin_saccades import config
 from penguin_saccades import constants as C
-from penguin_saccades.ingest_closed import process_closed_trajectory, read_dlc, recording_id_from_filename
-from penguin_saccades.ingest_open import load_open_trajectory, process_open_trajectory, species_from_filename
-from penguin_saccades.isi import chunk_intervals, head_body_compensation, interval_content, saccade_budget
+from penguin_saccades.ingest_closed import (
+    focal_track,
+    process_closed_trajectory,
+    read_dlc,
+    read_sleap_analysis,
+    recording_id_from_filename,
+)
+from penguin_saccades.ingest_open import (
+    load_open_trajectory,
+    process_open_trajectory,
+    species_from_filename,
+)
+from penguin_saccades.isi import (
+    chunk_intervals,
+    head_body_compensation,
+    interval_content,
+    saccade_budget,
+)
 from penguin_saccades.saccades import detect_in_trajectories, triggered_windows, zero_offset_rows
 from penguin_saccades.stats import pairwise_fisher, summarise
 from penguin_saccades.taxonomy import associate_head_body, classified_intervals
@@ -61,10 +77,9 @@ def stage_ingest(out: Path) -> None:
         df["source_file"] = path.name
         trajectory_id += 1
         parts.append(df)
-    closed_dir = config.get_path("closed_dlc_dir")
-    dlc_files = sorted(closed_dir.glob("*DLC*.csv")) + sorted(closed_dir.glob("*DLC*.h5"))
-    for path in tqdm(dlc_files, desc="data set 2 (closed)"):
-        df = process_closed_trajectory(read_dlc(path))
+    pose_files, reader = _closed_pose_files()
+    for path in tqdm(pose_files, desc="data set 2 (closed)"):
+        df = process_closed_trajectory(reader(path))
         if df.empty:
             continue
         df[C.COL_TRAJECTORY] = trajectory_id
@@ -73,7 +88,7 @@ def stage_ingest(out: Path) -> None:
         trajectory_id += 1
         parts.append(df)
     if not parts:
-        raise FileNotFoundError(f"No trajectories found under {open_dir} or {closed_dir}.")
+        raise FileNotFoundError(f"No trajectories found under {open_dir} or the closed-pool pose folder.")
     trajectories = pd.concat(parts, ignore_index=True)
     trajectories.to_csv(out / FILES["trajectories"], index=False)
     print(f"[ingest] {len(trajectories)} frames, {trajectory_id} trajectories -> {out / FILES['trajectories']}")
@@ -181,7 +196,7 @@ def stage_plots(out: Path) -> None:
     # Saccade-triggered averages per data set and source.
     for (dataset, source), sacc in saccades.groupby([C.COL_DATASET, C.COL_SOURCE]):
         fps = FRAME_RATES[dataset]
-        half = int(round(C.TRIGGER_WINDOW_S * fps / 2))
+        half = round(C.TRIGGER_WINDOW_S * fps / 2)
         time_s = np.arange(-half, half + 1) / fps
         tables_v, tables_a = [], []
         for part, yaw_col, vel_col in (("body", C.COL_BODY_YAW, C.COL_BODY_VEL), ("head", C.COL_HEAD_YAW, C.COL_HEAD_VEL)):
@@ -238,6 +253,32 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {err}", file=sys.stderr)
         return 1
     return 0
+
+
+def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame]]:
+    """SLEAP analysis files when ``closed_sleap_dir`` is configured and populated, else DeepLabCut."""
+    try:
+        sleap_dir = config.get_path("closed_sleap_dir")
+    except config.PathConfigError:
+        sleap_dir = None
+    if sleap_dir is not None and sleap_dir.is_dir():
+        files = sorted(sleap_dir.glob("*.analysis.h5"))
+        if files:
+            print(f"[ingest] closed pool from SLEAP: {sleap_dir}")
+            return files, lambda p: focal_track(read_sleap_analysis(p))
+    return _dlc_files(config.get_path("closed_dlc_dir")), read_dlc
+
+
+def _dlc_files(closed_dir: Path) -> list[Path]:
+    """DeepLabCut outputs, one per recording: the raw CSV, or the H5 when no CSV exists.
+
+    DeepLabCut's own ``*_filtered`` outputs are skipped so every recording
+    passes through the same likelihood gate in :mod:`ingest_closed`.
+    """
+    csvs = sorted(c for c in closed_dir.glob("*DLC*.csv") if "_filtered" not in c.stem)
+    stems = {c.stem for c in csvs}
+    return csvs + [h for h in sorted(closed_dir.glob("*DLC*.h5"))
+                   if h.stem not in stems and "_filtered" not in h.stem]
 
 
 def _read(out: Path, key: str) -> pd.DataFrame:
