@@ -23,10 +23,11 @@ from sleap.nn.config import (
 )
 
 ANCHOR: str = "neck"
-CROP_SIZE_PX: int = 256          # a gentoo spans up to ~250 px in these clips
-EPOCHS: int = 150
+CROP_SIZE_PX: int = 320          # a gentoo spans up to ~250 px; multiple of the 32 px stride
+EPOCHS: int = 200
 BATCH_SIZE: int = 4
-SIGMA_PX: float = 2.5
+SIGMA_PX: float = 2.5             # centroid targets, at half resolution
+INSTANCE_SIGMA_PX: float = 5.0    # broader targets: a 200 px bird needs no 2 px precision
 
 
 def main() -> None:
@@ -50,9 +51,10 @@ def centered_instance_config() -> TrainingJobConfig:
     cfg.data.preprocessing.input_scaling = 1.0
     cfg.data.instance_cropping.center_on_part = ANCHOR
     cfg.data.instance_cropping.crop_size = CROP_SIZE_PX
-    cfg.model.backbone.unet.filters = 24
+    cfg.model.backbone.unet.filters = 32
+    cfg.model.backbone.unet.max_stride = 32   # receptive field must cover the whole silhouette
     cfg.model.heads.centered_instance = CenteredInstanceConfmapsHeadConfig(
-        anchor_part=ANCHOR, sigma=SIGMA_PX, output_stride=2
+        anchor_part=ANCHOR, sigma=INSTANCE_SIGMA_PX, output_stride=2
     )
     return cfg
 
@@ -74,17 +76,15 @@ def base_config(run_name: str) -> TrainingJobConfig:
     aug.brightness = True
     aug.brightness_min_val = -0.2
     aug.brightness_max_val = 0.2
-    aug.contrast = True
-    aug.contrast_min_gamma = 0.7
-    aug.contrast_max_gamma = 1.3
-    aug.random_flip = True
-    aug.flip_horizontal = True
+    # No contrast augmentation: SLEAP 1.4.1 passes its gamma range (0.7-1.3) to
+    # albumentations, which expects percent, so gamma ~0.01 bleaches every crop.
+    aug.contrast = False
     cfg.optimization.batch_size = BATCH_SIZE
     cfg.optimization.epochs = EPOCHS
     cfg.optimization.initial_learning_rate = 1e-4
-    cfg.optimization.early_stopping.plateau_patience = 15
+    cfg.optimization.early_stopping.plateau_patience = 20
     cfg.optimization.learning_rate_schedule.reduce_on_plateau = True
-    cfg.optimization.learning_rate_schedule.plateau_patience = 6
+    cfg.optimization.learning_rate_schedule.plateau_patience = 10
     cfg.outputs.run_name = run_name
     cfg.outputs.runs_folder = "models"
     cfg.outputs.save_visualizations = False
