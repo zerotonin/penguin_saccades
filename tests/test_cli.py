@@ -14,7 +14,7 @@ def test_pipeline_end_to_end(monkeypatch, tmp_path: Path):
     open_dir, dlc_dir, out = tmp_path / "open", tmp_path / "dlc", tmp_path / "out"
     open_dir.mkdir()
     dlc_dir.mkdir()
-    open_track(saccades=[(3.0, 60.0), (7.0, -50.0)]).to_hdf(open_dir / "Gentoo_morning.h5", key="trace")
+    open_track(saccades=[(3.0, 60.0), (7.0, -60.0)]).to_hdf(open_dir / "Gentoo_morning.h5", key="trace")
     open_track(saccades=[(4.0, 70.0)]).to_hdf(open_dir / "Rockhopper_morning.h5", key="trace")
     write_dlc_csv(dlc_track(), dlc_dir / "07_gentooDLC_resnet50.csv")
     write_dlc_csv(dlc_track(body_saccades=[(6.0, -60.0)], head_saccades=[(5.9, -60.0), (2.5, 35.0)]),

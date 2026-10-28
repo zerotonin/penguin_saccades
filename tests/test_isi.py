@@ -40,21 +40,21 @@ def test_interval_content_is_straight_and_fast_between_saccades():
 def test_chunks_are_one_second_long_and_zero_offset():
     traj, _, ints = _traj()
     chunks = I.chunk_intervals(traj, ints, FPS)
-    size = int(C.ISI_CHUNK_S * FPS["open"])
+    size = round(C.ISI_CHUNK_S * FPS["open"])
     assert set(chunks.frame.unique()) == set(range(size))
     ang = chunks[chunks.variable == "body_yaw_deg"]
     first = ang.groupby(["interval_id", "chunk_id"]).apply(lambda g: g.dropna().value.iloc[0])
     assert np.allclose(first, 0.0)
 
 
-def test_head_compensation_detects_counter_rotation():
+def test_head_compensation_detects_gaze_stabilisation():
     n = 100
     body_v = np.sin(np.linspace(0, 6, n)) * 50
     traj = pd.DataFrame({
-        C.COL_FRAME: np.arange(n), C.COL_BODY_VEL: body_v, C.COL_HEAD_VEL: -body_v,
+        C.COL_FRAME: np.arange(n), C.COL_BODY_VEL: body_v, C.COL_HEAD_VEL: 0.0 * body_v,
         C.COL_DATASET: "closed", C.COL_SPECIES: "gentoo", C.COL_TRAJECTORY: 0, C.COL_SEGMENT: 0,
     })
     ints = pd.DataFrame({"start_idx": [0], "stop_idx": [n - 1], C.COL_DATASET: "closed",
                          C.COL_SPECIES: "gentoo", C.COL_TRAJECTORY: 0, C.COL_SEGMENT: 0})
     comp = I.head_body_compensation(traj, ints)
-    assert abs(comp.pearson_r.iloc[0] + 1) < 1e-9 and abs(comp.slope_head_per_body.iloc[0] + 1) < 1e-9
+    assert abs(comp.slope_head_per_body.iloc[0]) < 1e-9 and abs(comp.slope_neck_per_body.iloc[0] + 1) < 1e-9

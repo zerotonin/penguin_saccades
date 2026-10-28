@@ -6,9 +6,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from penguin_saccades import config
+from penguin_saccades import config, stats
 from penguin_saccades import constants as C
-from penguin_saccades import stats
 
 
 def test_bootstrap_ci_brackets_median():
@@ -35,7 +34,7 @@ def test_fisher_tests_separate_clear_groups(monkeypatch):
 def test_config_fails_loudly_without_paths_file(monkeypatch, tmp_path: Path):
     monkeypatch.setenv(config.ENV_PATHS_FILE, str(tmp_path / "nope.json"))
     monkeypatch.delenv(config.ENV_DATA_ROOT, raising=False)
-    with pytest.raises(config.PathConfigError, match="local_paths.template.json"):
+    with pytest.raises(config.PathConfigError, match=r"local_paths\.template\.json"):
         config.data_root()
 
 

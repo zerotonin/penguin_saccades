@@ -59,3 +59,30 @@ def test_process_closed_recovers_head_offset_and_scale():
     rel = np.rad2deg(traj[C.COL_HEAD_YAW] - traj[C.COL_BODY_YAW]).to_numpy()
     assert abs(rel[20]) < 1 and abs(rel[-20] - 40) < 1
     assert abs(np.nanmedian(traj[C.COL_TRANS]) - 1.0) < 0.05
+
+
+def test_read_sleap_analysis_and_focal_track(tmp_path: Path):
+    import h5py
+
+    df = dlc_track(duration_s=4.0)
+    n = len(df)
+    nodes = list(C.DLC_KEYPOINTS)
+    tracks = np.full((2, 2, len(nodes), n + 20), np.nan)
+    scores = np.full((2, len(nodes), n + 20), np.nan)
+    for j, kp in enumerate(nodes):
+        tracks[0, 0, j, :n] = df[f"{kp}_x"]
+        tracks[0, 1, j, :n] = df[f"{kp}_y"]
+        scores[0, j, :n] = 0.9
+        tracks[1, :, j, 5:9] = 100.0           # a second bird seen for four frames
+        scores[1, j, 5:9] = 0.5
+    path = tmp_path / "07.analysis.h5"
+    with h5py.File(path, "w") as f:
+        f["tracks"] = tracks
+        f["point_scores"] = scores
+        f["node_names"] = np.array([s.encode() for s in nodes])
+    table = IC.read_sleap_analysis(path, min_occupancy=1)
+    assert set(table.track_id) == {0, 1}
+    focal = IC.focal_track(table)
+    assert len(focal) == n and focal.beak_likelihood.iloc[0] == 0.9
+    traj = IC.process_closed_trajectory(focal)
+    assert traj[C.COL_HEAD_YAW].notna().sum() > 0.8 * n
