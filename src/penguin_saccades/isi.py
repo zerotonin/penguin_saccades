@@ -120,7 +120,7 @@ def chunk_intervals(
     rows: list[pd.DataFrame] = []
     for key, seg in trajectories.groupby(list(GROUP_KEYS), sort=False):
         fps = frame_rates[key[0]]
-        size = int(round(chunk_s * fps))
+        size = round(chunk_s * fps)
         frames = seg[C.COL_FRAME].to_numpy()
         sel = intervals[(intervals[list(GROUP_KEYS)] == pd.Series(key, index=GROUP_KEYS)).all(axis=1)]
         for interval_id, it in sel.iterrows():
@@ -164,10 +164,13 @@ def head_body_compensation(
     intervals: pd.DataFrame,
     min_frames: int = C.MIN_COMPENSATION_FRAMES,
 ) -> pd.DataFrame:
-    """Per interval: Pearson r and slope of head yaw velocity against body yaw velocity.
+    """Per interval: regression of head yaw velocity on body yaw velocity.
 
-    Negative r (slope near -1) means the head counter-rotates the body's
-    residual yaw; r near 0 means no compensation.
+    Head yaw is measured in world coordinates, so a head rigidly carried
+    by the body gives ``slope_head_per_body`` of 1 and perfect gaze
+    stabilisation gives 0.  ``slope_neck_per_body`` is the same fit for
+    the neck (head minus body) velocity: -1 means full compensation,
+    0 none.
     """
     rows: list[dict] = []
     for key, seg in trajectories.groupby(list(GROUP_KEYS), sort=False):
@@ -184,7 +187,7 @@ def head_body_compensation(
             ok = np.isfinite(x) & np.isfinite(y)
             if ok.sum() < min_frames or np.std(x[ok]) == 0:
                 continue
-            slope, intercept = np.polyfit(x[ok], y[ok], 1)
+            slope, _intercept = np.polyfit(x[ok], y[ok], 1)
             rows.append({
                 **dict(zip(GROUP_KEYS, key)),
                 C.COL_INTERVAL_CLASS: it.get(C.COL_INTERVAL_CLASS, "any"),
@@ -192,5 +195,6 @@ def head_body_compensation(
                 "n_frames": int(ok.sum()),
                 "pearson_r": float(np.corrcoef(x[ok], y[ok])[0, 1]),
                 "slope_head_per_body": float(slope),
+                "slope_neck_per_body": float(slope) - 1.0,
             })
     return pd.DataFrame(rows)

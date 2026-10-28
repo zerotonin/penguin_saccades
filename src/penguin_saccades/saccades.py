@@ -48,7 +48,7 @@ def detect_saccades(
     yaw_rad = np.asarray(yaw_rad, dtype=float)
     velocity = yaw_velocity_degps(yaw_rad, frame_rate_hz)
     abs_velocity = np.nan_to_num(np.abs(velocity), nan=0.0)
-    distance = max(1, int(round(min_separation_s * frame_rate_hz)))
+    distance = max(1, round(min_separation_s * frame_rate_hz))
     peaks, _ = find_peaks(abs_velocity, height=threshold_degps, distance=distance)
     if peaks.size == 0:
         return _empty(SACCADE_COLUMNS)
@@ -56,7 +56,7 @@ def detect_saccades(
     start = np.clip(np.floor(left).astype(int), 0, yaw_rad.size - 1)
     stop = np.clip(np.ceil(right).astype(int), 0, yaw_rad.size - 1)
     yaw_deg = np.rad2deg(yaw_rad)
-    settle = max(1, int(round(settle_s * frame_rate_hz)))
+    settle = max(1, round(settle_s * frame_rate_hz))
     df = pd.DataFrame({
         "start_idx": start,
         "peak_idx": peaks,
@@ -139,7 +139,7 @@ def detect_in_trajectories(
     int_parts: list[pd.DataFrame] = []
     for key, seg in trajectories.groupby(keys, sort=False):
         fps = frame_rates[key[0]]
-        yaw = seg[yaw_col].to_numpy()
+        yaw = seg[yaw_col].to_numpy(dtype=float)
         if not np.isfinite(yaw).any():
             continue
         frames = seg[C.COL_FRAME].to_numpy()
