@@ -73,8 +73,10 @@ manuscript. Each is a single constant; change it there and rerun.
 
 | constant                             | current value | note                                             |
 |--------------------------------------|---------------|--------------------------------------------------|
-| `DATASET_OPEN.frame_rate_hz`         | 30            | legacy code used 30, manuscript says 60          |
-| `SMOOTHING_SIGMA_S`                  | 0.05 s        | manuscript: 3-frame Gaussian at 60 fps           |
+| `DATASET_OPEN.frame_rate_hz`         | 59.94         | read from the GoPro files; legacy code used 30   |
+| `DATASET_OPEN.smoothing_sigma_s`     | 0.10 s        | from the smoothing sweep (results/qc)            |
+| `DATASET_CLOSED.smoothing_sigma_s`   | 0.04 s        | one frame at 25 fps; 0.10 s erases head saccades |
+| `MAX_HEAD_BODY_ANGLE_DEG`            | 90            | skeleton gate against keypoint jumps between birds |
 | `SACCADE_VELOCITY_THRESHOLD_DEGPS`   | 200           | legacy scripts used 180, 200 and 250             |
 | `ASSOCIATION_WINDOW_S`               | 1.0 s         | head-body pairing window, not stated in legacy   |
 | `GENTOO_BODY_LENGTH_M`               | 0.80 m        | scale for data set 2                             |
