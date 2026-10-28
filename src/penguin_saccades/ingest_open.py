@@ -55,8 +55,8 @@ def process_open_trajectory(
     masked where the animal is too slow, and speeds are computed.
     """
     fps = spec.frame_rate_hz
-    sigma = sigma_frames(C.SMOOTHING_SIGMA_S, fps)
-    min_len = int(round(C.MIN_SEGMENT_S * fps))
+    sigma = sigma_frames(spec.smoothing_sigma_s, fps)
+    min_len = round(C.MIN_SEGMENT_S * fps)
     parts: list[pd.DataFrame] = []
     for seg_id, frames in enumerate(split_segments(df_raw.index.to_numpy(), C.MAX_GAP_FRAMES, min_len)):
         seg = fill_gaps(df_raw.loc[(df_raw.index >= frames[0]) & (df_raw.index <= frames[-1])])

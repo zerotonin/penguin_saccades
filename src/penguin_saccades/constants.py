@@ -47,6 +47,7 @@ class DatasetSpec:
     image_width_px: int | None
     image_height_px: int | None
     m_per_px: float | None
+    smoothing_sigma_s: float
 
 
 # Three tape-measure calibrations (metres, pixels) of the overhead camera.
@@ -57,10 +58,11 @@ CALIBRATION_SAMPLES_M_PX: tuple[tuple[float, float], ...] = (
 )
 OPEN_M_PER_PX: float = float(np.mean([m / px for m, px in CALIBRATION_SAMPLES_M_PX]))
 
-# TO RATIFY: the legacy code used 30 fps for data set 1 while the manuscript
-# states 60 fps.  Velocities scale linearly and durations inversely with
-# this number, so it must be read from the video files, not assumed.
-OPEN_FRAME_RATE_HZ: float = 30.0
+# Read from the GoPro files (2704 x 1520, 59.94 fps NTSC).  The legacy code
+# used 30 fps, which halved every velocity and doubled every duration.
+# Charon frame numbers run to the last movie frame, so detections are
+# per video frame at this rate.
+OPEN_FRAME_RATE_HZ: float = 59.94
 CLOSED_FRAME_RATE_HZ: float = 25.0
 
 DATASET_OPEN = DatasetSpec(
@@ -70,6 +72,7 @@ DATASET_OPEN = DatasetSpec(
     image_width_px=1402,
     image_height_px=788,
     m_per_px=OPEN_M_PER_PX,
+    smoothing_sigma_s=0.10,
 )
 DATASET_CLOSED = DatasetSpec(
     name="closed",
@@ -78,6 +81,7 @@ DATASET_CLOSED = DatasetSpec(
     image_width_px=None,
     image_height_px=None,
     m_per_px=None,
+    smoothing_sigma_s=0.04,
 )
 
 # Scale for data set 2 comes from the animal itself.  Source: assumed
@@ -106,6 +110,14 @@ DLC_LIKELIHOOD_THRESHOLD: float = 0.75
 # split the recording into separate segments.
 MAX_INTERPOLATION_GAP_FRAMES: int = 5
 
+# The closed-pool model is single-animal but two or three penguins share
+# the pool, so keypoints occasionally jump between birds.  A frame is
+# rejected when a skeleton segment (beak-neck, neck-caudal) leaves this
+# range of its per-recording median length, or when the head points
+# further from the body axis than a penguin neck allows.
+SKELETON_LENGTH_RATIO: tuple[float, float] = (0.5, 1.5)
+MAX_HEAD_BODY_ANGLE_DEG: float = 90.0   # TO RATIFY
+
 
 # ┌──────────────────────────────────────────────────────────────────┐
 # │ Trajectory processing  « segments, smoothing, heading validity » │
@@ -115,11 +127,15 @@ MAX_INTERPOLATION_GAP_FRAMES: int = 5
 MAX_GAP_FRAMES: int = 10
 # A segment must be at least this long to host a saccade window.
 MIN_SEGMENT_S: float = 1.0
-# One Gaussian smoothing width in seconds, applied identically to both
-# data sets (sigma in frames = SMOOTHING_SIGMA_S * frame rate).  The
-# manuscript describes a 3-frame Gaussian at 60 fps, i.e. 0.05 s.  Wider
-# kernels attenuate the peak velocity of 200 to 300 ms saccades.
-SMOOTHING_SIGMA_S: float = 0.05
+# Gaussian smoothing of positions and angles, in seconds, set per data
+# set in DatasetSpec because the measurement differs.  Data set 1 yaw
+# comes from centre-of-mass displacement of ~1.3 px per frame at 60 fps,
+# so the count of small detections is set by the kernel, not the bird;
+# the count of large body saccades (>= 60 deg) stabilises from 0.10 s on
+# (results/qc/smoothing_sweep_open).  Data set 2 yaw comes from keypoint
+# vectors at 25 fps, where 0.10 s (2.5 frames) erases 200 ms head
+# saccades; 0.04 s is one frame.  TO RATIFY for data set 2.
+SMOOTHING_SIGMA_S: float = 0.10   # legacy single value; DatasetSpec wins
 # Heading derived from displacement is undefined when the animal is
 # (nearly) stationary.  Frames slower than this get NaN heading.
 MIN_HEADING_SPEED_MPS: float = 0.10
