@@ -8,6 +8,8 @@
       "closed_dlc_dir": "/path/to/your/penguin_project/pengu_head_movies",
       "closed_sleap_dir": "/path/to/your/penguin_project/sleap/predictions",
       "closed_video_dir": "/path/to/your/penguin_project/pengu_head_movies",
+      "open_sleap_dir": "/path/to/your/penguin_project/sleap_open/predictions",
+      "open_video_dir": "/path/to/your/penguin_project/penguins/open_movies/Gentoo",
       "output_dir": "/path/to/your/penguin_project/results"
     },
     "hpc": {
@@ -17,9 +19,16 @@
       "closed_dlc_dir": "/path/to/cluster/penguin_project/pengu_head_movies",
       "closed_sleap_dir": "/path/to/cluster/penguin_project/sleap/predictions",
       "closed_video_dir": "/path/to/cluster/penguin_project/pengu_head_movies",
+      "open_sleap_dir": "/path/to/cluster/penguin_project/sleap_open/predictions",
+      "open_video_dir": "/path/to/cluster/penguin_project/penguins/open_movies/Gentoo",
       "output_dir": "/path/to/cluster/penguin_project/results",
       "partition": "<your-slurm-partition>",
-      "account": "<your-slurm-account>"
+      "account": "<your-slurm-account>",
+      "closed_sleap_project_dir": "/path/to/cluster/sleap_work/closed",
+      "open_sleap_project_dir": "/path/to/cluster/sleap_work/open",
+      "conda_sh": "/path/to/miniconda3/etc/profile.d/conda.sh",
+      "sleap_env": "sleap",
+      "gpu_partitions": "<comma-separated-gpu-partitions>"
     }
   }
 }

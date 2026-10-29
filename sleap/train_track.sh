@@ -1,7 +1,8 @@
 #!/bin/bash
-# Train the two SLEAP models and track every closed-pool clip on the cluster.
-# All machine-specific values come from local_paths.json (hpc profile) via
-# penguin_saccades.config --export; submit with sleap/submit.sh.
+# Train the two SLEAP models and track every movie of one data set.
+# submit.sh exports the project folder (package, configs, track_videos.py),
+# the movie folder and the conda setup; the same script serves the
+# closed-pool clips and the open-water movies.
 # The sleap-* console scripts are avoided on purpose: the 1.4.1 conda
 # package ships a pkg_resources dependency conflict that aborts them at
 # import, while python -m skips that check.
@@ -9,16 +10,19 @@
 #SBATCH --ntasks=1
 #SBATCH --gpus-per-task=1
 #SBATCH --cpus-per-task=8
-#SBATCH --mem=32G
-#SBATCH --time=06:00:00
+#SBATCH --mem=48G
+#SBATCH --time=12:00:00
 
-PROJ=${PENGUIN_SACCADES_SLEAP_DIR:?run via sleap/submit.sh so the paths are exported}
-VIDEOS=${PENGUIN_SACCADES_CLOSED_VIDEO_DIR:?}
+PROJ=${PENGUIN_SLEAP_PROJECT_DIR:?run via sleap/submit.sh so the paths are exported}
+VIDEOS=${PENGUIN_SLEAP_VIDEO_DIR:?}
+PATTERN=${PENGUIN_SLEAP_VIDEO_PATTERN:-[0-9]*.mp4}
+TRACK_ARGS=${PENGUIN_SLEAP_TRACK_ARGS:-}
 sleep 5
-source "${PENGUIN_SACCADES_CONDA_SH:?}"
-conda activate "${PENGUIN_SACCADES_SLEAP_ENV:?}"
+source "${PENGUIN_SLEAP_CONDA_SH:?}"
+conda activate "${PENGUIN_SLEAP_ENV:?}"
 cd "$PROJ" || exit 1
 echo "job $SLURM_JOB_ID on $(hostname) partition $SLURM_JOB_PARTITION start $(date)"
+echo "project $PROJ movies $VIDEOS/$PATTERN track args: $TRACK_ARGS"
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader
 python -c "import tensorflow as tf; g = tf.config.list_physical_devices('GPU'); print('GPUs:', g); assert g, 'NO GPU VISIBLE'" || exit 1
 
@@ -30,6 +34,7 @@ T0=$(date +%s)
 echo "centered_instance training took $(( $(date +%s) - T0 )) s"
 
 T0=$(date +%s)
-python track_videos.py "$VIDEOS" models predictions || echo "TRACK FAILED"
+# shellcheck disable=SC2086
+python track_videos.py "$VIDEOS" models predictions --pattern "$PATTERN" $TRACK_ARGS || echo "TRACK FAILED"
 echo "tracking took $(( $(date +%s) - T0 )) s"
 echo "end $(date)"

@@ -11,14 +11,16 @@ tools as `python -m sleap.nn.training` etc. because the console scripts
 abort on a packaging conflict):
 
 ```bash
-python sleap/build_training_package.py <dlc_project> <video_dir> sleap/penguins_train.pkg.slp
-python sleap/make_configs.py sleap/
-bash sleap/submit.sh            # on the cluster, hpc profile of local_paths.json
+python sleap/build_training_package.py <dlc_project> <video_dir> <closed project dir>/penguins_train.pkg.slp
+python sleap/make_configs.py <closed project dir> --preset closed
+bash sleap/submit.sh closed     # on the cluster, hpc profile of local_paths.json
 ```
 
 `train_track.sh` trains both models, tracks every clip and writes
-`predictions/<rec>.analysis.h5`. Point `closed_sleap_dir` in
-`local_paths.json` at that folder and `penguin-saccades ingest` uses
+`predictions/<rec>.analysis.h5` into the project directory
+(`closed_sleap_project_dir` of the hpc profile, which also names
+`conda_sh`, `sleap_env` and `gpu_partitions`). Point `closed_sleap_dir`
+in `local_paths.json` at that folder and `penguin-saccades ingest` uses
 the longest track per clip as the focal bird. Proofread the
 `*.predictions.slp` files in the SLEAP GUI before trusting them.
 
@@ -30,7 +32,7 @@ After the job, pull `predictions/` back and build the proofreading project:
 
 ```bash
 python sleap/collect_predictions.py <predictions_dir> <video_dir> penguins_proofread.slp --labels sleap/penguins_train.pkg.slp
-python -m sleap.gui.app penguins_proofread.slp
+python sleap/gui.py penguins_proofread.slp
 ```
 
 ## Lessons from the first training run
@@ -56,3 +58,43 @@ python -m sleap.gui.app penguins_proofread.slp
   1.4.1 conda package, and `python -m sleap.nn.inference` has no main
   guard.  Train with `python -m sleap.nn.training`, track with
   `track_videos.py`.
+
+## Open-water movies (data set 1): a second SLEAP project
+
+The closed-pool model does not transfer (camera above the pool, birds
+150 to 250 px long, low contrast), so the open-water movies get their own
+labels.  The curated charon trajectories seed the suggested frames, which
+keeps the labeller on frames that hold a bird:
+
+```bash
+python sleap/export_open_boxes.py <sorted_and_filtered dir> open_boxes.csv          # analysis env
+python sleap/build_open_labelling_project.py <open movies dir> open_water_labels.slp \
+    --n-frames 200 --exclude 04-03 --boxes-csv open_boxes.csv                        # sleap env
+python sleap/gui.py open_water_labels.slp
+```
+
+The 04-03-2021 avi is a damaged MPEG-4 file (decode errors, empty frames on
+seek) and the raw `.tra` detections are mostly false positives at the pool
+edge; both are left out on purpose.  Label beak, neck, left fin, right fin
+and tail; the skeleton carries the fin symmetry so flips are allowed here.
+
+Once labelled (190 frames, 162 with all five points, were enough), export
+the package, write the open-water configs and submit the same job script
+for the second data set:
+
+```bash
+python sleap/export_training_package.py open_water_labels.slp <open project dir>/penguins_train.pkg.slp
+python sleap/make_configs.py <open project dir> --preset open
+bash sleap/submit.sh open       # tracks Gentoo_*.mp4 with at most three tracks
+```
+
+The `open` preset keeps the half-resolution centroid stage (a bird is
+~100 px at that scale in the 2704 x 1520 frame) and widens the instance
+crop to 384 px because neck to tail reaches 180 px.  The track cap keeps
+the analysis export small on 45 000-frame movies in which the bird dives
+and resurfaces; the ingest takes the best-scoring instance per frame
+anyway.  Point `open_sleap_dir` at the predictions and
+`penguin-saccades ingest` derives body and head yaw from the skeleton
+(`process_open_pose_trajectory`), rescaling movie pixels to the calibrated
+1402 x 788 frame and dropping birds outside the water ROI, instead of
+heading from displacement.

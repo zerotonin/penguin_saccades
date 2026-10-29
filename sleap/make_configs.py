@@ -2,17 +2,20 @@
 # ║  penguin_saccades — sleap/make_configs                           ║
 # ║  « centroid model finds the birds, instance model poses one »    ║
 # ╠══════════════════════════════════════════════════════════════════╣
-# ║  Writes centroid.json and centered_instance.json. Top-down is    ║
-# ║  the right choice for two or three penguins in a 640 x 480       ║
+# ║  Writes centroid.json and centered_instance.json for one data    ║
+# ║  set. Top-down is the right choice for a few penguins per        ║
 # ║  frame: the centroid stage separates animals, the instance       ║
 # ║  stage sees one bird per crop. Rotation augmentation covers the  ║
-# ║  full circle because the camera looks straight up.               ║
+# ║  full circle because both cameras look straight down or up.      ║
+# ║  The presets differ only in crop size, which follows the         ║
+# ║  bird's extent in pixels.                                        ║
 # ╚══════════════════════════════════════════════════════════════════╝
-"""Write the two SLEAP training configurations."""
+"""Write the two SLEAP training configurations for a data set."""
 
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 from pathlib import Path
 
 from sleap.nn.config import (
@@ -23,36 +26,55 @@ from sleap.nn.config import (
 )
 
 ANCHOR: str = "neck"
-CROP_SIZE_PX: int = 320          # a gentoo spans up to ~250 px; multiple of the 32 px stride
 EPOCHS: int = 200
 BATCH_SIZE: int = 4
 SIGMA_PX: float = 2.5             # centroid targets, at half resolution
 INSTANCE_SIGMA_PX: float = 5.0    # broader targets: a 200 px bird needs no 2 px precision
+INSTANCE_STRIDE: int = 32         # receptive field must cover the whole silhouette
+
+
+@dataclass(frozen=True)
+class Preset:
+    """Per-data-set geometry; crop size is a multiple of the instance stride."""
+
+    name: str
+    crop_size_px: int
+    centroid_input_scaling: float
+
+
+PRESETS: dict[str, Preset] = {
+    # closed pool, 640 x 480 clips: a gentoo spans up to ~250 px
+    "closed": Preset("closed", crop_size_px=320, centroid_input_scaling=0.5),
+    # open water, 2704 x 1520 GoPro frames: neck to tail up to ~180 px, anchored at the neck
+    "open": Preset("open", crop_size_px=384, centroid_input_scaling=0.5),
+}
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("out_dir", type=Path)
+    parser.add_argument("--preset", choices=sorted(PRESETS), default="closed")
     args = parser.parse_args()
-    centroid_config().save_json(str(args.out_dir / "centroid.json"))
-    centered_instance_config().save_json(str(args.out_dir / "centered_instance.json"))
-    print(f"configs written to {args.out_dir}")
+    preset = PRESETS[args.preset]
+    centroid_config(preset).save_json(str(args.out_dir / "centroid.json"))
+    centered_instance_config(preset).save_json(str(args.out_dir / "centered_instance.json"))
+    print(f"{preset.name} configs written to {args.out_dir}")
 
 
-def centroid_config() -> TrainingJobConfig:
+def centroid_config(preset: Preset) -> TrainingJobConfig:
     cfg = base_config("centroid")
-    cfg.data.preprocessing.input_scaling = 0.5
+    cfg.data.preprocessing.input_scaling = preset.centroid_input_scaling
     cfg.model.heads.centroid = CentroidsHeadConfig(anchor_part=ANCHOR, sigma=SIGMA_PX, output_stride=4)
     return cfg
 
 
-def centered_instance_config() -> TrainingJobConfig:
+def centered_instance_config(preset: Preset) -> TrainingJobConfig:
     cfg = base_config("centered_instance")
     cfg.data.preprocessing.input_scaling = 1.0
     cfg.data.instance_cropping.center_on_part = ANCHOR
-    cfg.data.instance_cropping.crop_size = CROP_SIZE_PX
+    cfg.data.instance_cropping.crop_size = preset.crop_size_px
     cfg.model.backbone.unet.filters = 32
-    cfg.model.backbone.unet.max_stride = 32   # receptive field must cover the whole silhouette
+    cfg.model.backbone.unet.max_stride = INSTANCE_STRIDE
     cfg.model.heads.centered_instance = CenteredInstanceConfmapsHeadConfig(
         anchor_part=ANCHOR, sigma=INSTANCE_SIGMA_PX, output_stride=2
     )
