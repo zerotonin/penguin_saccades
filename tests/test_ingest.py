@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from penguin_saccades import constants as C
@@ -86,3 +87,39 @@ def test_read_sleap_analysis_and_focal_track(tmp_path: Path):
     assert len(focal) == n and focal.beak_likelihood.iloc[0] == 0.9
     traj = IC.process_closed_trajectory(focal)
     assert traj[C.COL_HEAD_YAW].notna().sum() > 0.8 * n
+
+
+def test_best_instance_per_frame_keeps_highest_score_any_track():
+    base = dlc_track(duration_s=2.0).reset_index()
+    first = base.assign(track_id=0).drop(index=[7])
+    second = base[(base[C.COL_FRAME] >= 10) & (base[C.COL_FRAME] < 20)].assign(track_id=1)
+    second = second.assign(**{f"{kp}_likelihood": 0.999 for kp in C.DLC_KEYPOINTS})
+    second = second.assign(neck_x=second["neck_x"] + 1000.0)
+    best = IC.best_instance_per_frame(pd.concat([first, second], ignore_index=True))
+    assert len(best) == len(base) and "track_id" not in best.columns
+    assert best.loc[15, "neck_x"] == pytest.approx(base.loc[15, "neck_x"] + 1000.0)
+    assert best.loc[5, "neck_x"] == pytest.approx(base.loc[5, "neck_x"])
+    assert best.loc[7, "neck_likelihood"] == 0.0 and np.isnan(best.loc[7, "neck_x"])
+
+
+def test_process_open_pose_trajectory_scales_movie_pixels():
+    px_per_m = C.OPEN_MOVIE_SIZE_PX[0] / (C.DATASET_OPEN.image_width_px * C.OPEN_M_PER_PX)
+    df = dlc_track(duration_s=4.0, body_saccades=[(2.0, 60.0)], head_saccades=[(1.0, 30.0)],
+                   speed_mps=1.0, fps=C.DATASET_OPEN.frame_rate_hz, px_per_m=px_per_m)
+    traj = IO.process_open_pose_trajectory(df)
+    assert traj[C.COL_DATASET].iloc[0] == "open" and traj[C.COL_SEGMENT].nunique() == 1
+    assert abs(np.nanmedian(traj[C.COL_TRANS]) - 1.0) < 0.05
+    yaw = np.rad2deg(traj[C.COL_BODY_YAW].to_numpy())
+    assert abs(yaw[30]) < 1 and abs(yaw[-30] - 60) < 1
+    rel = np.rad2deg(traj[C.COL_HEAD_YAW] - traj[C.COL_BODY_YAW]).to_numpy()
+    assert abs(rel[20]) < 1 and abs(rel[-20] - 30) < 1
+
+
+def test_open_pose_on_land_is_dropped():
+    df = dlc_track(duration_s=2.0, speed_mps=0.0, fps=C.DATASET_OPEN.frame_rate_hz)
+    for col in df.columns:
+        if col.endswith("_x"):
+            df[col] += 1500.0           # into the top-right land block of the frame
+        elif col.endswith("_y"):
+            df[col] -= 500.0
+    assert IO.process_open_pose_trajectory(df).empty

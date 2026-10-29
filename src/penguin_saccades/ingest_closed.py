@@ -1,11 +1,12 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  penguin_saccades — ingest_closed                                ║
-# ║  « data set 2: DeepLabCut poses to head and body yaw »           ║
+# ║  « data set 2: DeepLabCut or SLEAP poses to head and body yaw »  ║
 # ╠══════════════════════════════════════════════════════════════════╣
 # ║  Reads DLC output, gates every keypoint on its likelihood,       ║
 # ║  bridges short gaps, derives head yaw (neck to beak) and body    ║
 # ║  yaw (caudal to neck), and scales translation by the animal's    ║
-# ║  own body length.                                                ║
+# ║  own body length. The pose-to-yaw core and the SLEAP reader      ║
+# ║  are shared with the open-water pose route in ingest_open.       ║
 # ╚══════════════════════════════════════════════════════════════════╝
 """Ingestion of data set 2 (DeepLabCut head and body pose)."""
 
@@ -87,6 +88,23 @@ def focal_track(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def best_instance_per_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """One row per frame: the instance with the highest mean point score, any track.
+
+    For movies with one bird that dives and resurfaces the tracker splits
+    its identity across tracks; picking per frame keeps every surfacing.
+    """
+    score_cols = [c for c in df.columns if c.endswith("_likelihood")]
+    ranked = df.assign(_score=df[score_cols].mean(axis=1)).sort_values([C.COL_FRAME, "_score"])
+    out = ranked.drop_duplicates(C.COL_FRAME, keep="last").drop(columns=["_score", "track_id"])
+    out = out.set_index(C.COL_FRAME).sort_index()
+    full = pd.RangeIndex(0, int(out.index.max()) + 1, name=C.COL_FRAME)
+    out = out.reindex(full)
+    for col in score_cols:
+        out[col] = out[col].fillna(0.0)
+    return out
+
+
 def gate_likelihood(
     df: pd.DataFrame,
     keypoints: tuple[str, ...] = C.DLC_KEYPOINTS,
@@ -118,10 +136,21 @@ def process_closed_trajectory(
     ``body_length_m``.  Translation is the neck displacement.  SLEAP point
     scores are peak heights, so pass ``C.SLEAP_SCORE_THRESHOLD`` for them.
     """
-    fps = spec.frame_rate_hz
-    sigma = sigma_frames(spec.smoothing_sigma_s, fps)
     gated = gate_likelihood(df_dlc, threshold=likelihood_threshold)
     px_per_m = body_length_px(gated) / body_length_m
+    out = pose_to_trajectory(gated, spec, px_per_m)
+    out[C.COL_SPECIES] = C.CLOSED_SPECIES
+    return out
+
+
+def pose_to_trajectory(gated: pd.DataFrame, spec: C.DatasetSpec, px_per_m: float) -> pd.DataFrame:
+    """Gated keypoints, indexed by frame, to the shared trajectory schema.
+
+    Head yaw is the neck-to-beak vector, body yaw the caudal-to-neck
+    vector; frames failing :func:`skeleton_is_plausible` split segments.
+    """
+    fps = spec.frame_rate_hz
+    sigma = sigma_frames(spec.smoothing_sigma_s, fps)
     head_tail, head_tip = C.HEAD_VECTOR
     body_tail, body_tip = C.BODY_VECTOR
     head_yaw = vector_angle(
@@ -155,7 +184,6 @@ def process_closed_trajectory(
         return pd.DataFrame({c: pd.Series(dtype=float) for c in C.TRAJECTORY_COLUMNS})
     out = pd.concat(parts, ignore_index=True)
     out[C.COL_DATASET] = spec.name
-    out[C.COL_SPECIES] = C.CLOSED_SPECIES
     return out
 
 
@@ -177,7 +205,7 @@ def skeleton_is_plausible(
     ok = np.ones(len(df), dtype=bool)
     for a, b in (C.HEAD_VECTOR, C.BODY_VECTOR):
         length = np.hypot(df[f"{a}_x"] - df[f"{b}_x"], df[f"{a}_y"] - df[f"{b}_y"]).to_numpy()
-        median = np.nanmedian(length)
+        median = np.nanmedian(length) if np.isfinite(length).any() else np.nan
         ok &= (length >= length_ratio[0] * median) & (length <= length_ratio[1] * median)
     relative = np.rad2deg(np.angle(np.exp(1j * (head_yaw - body_yaw))))
     ok &= np.abs(relative) <= max_angle

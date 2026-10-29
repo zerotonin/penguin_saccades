@@ -23,6 +23,7 @@ from tqdm import tqdm
 from penguin_saccades import config
 from penguin_saccades import constants as C
 from penguin_saccades.ingest_closed import (
+    best_instance_per_frame,
     focal_track,
     process_closed_trajectory,
     read_dlc,
@@ -31,6 +32,7 @@ from penguin_saccades.ingest_closed import (
 )
 from penguin_saccades.ingest_open import (
     load_open_trajectory,
+    process_open_pose_trajectory,
     process_open_trajectory,
     species_from_filename,
 )
@@ -67,9 +69,13 @@ def stage_ingest(out: Path) -> None:
     """Both data sets to one trajectory table."""
     parts: list[pd.DataFrame] = []
     trajectory_id = 0
-    open_dir = config.get_path("open_trajectories_dir")
-    for path in tqdm(sorted(open_dir.rglob("*.h5")), desc="data set 1 (open)"):
-        df = process_open_trajectory(load_open_trajectory(path))
+    open_files, open_reader, open_processor = _open_sources()
+    for path in tqdm(open_files, desc="data set 1 (open)"):
+        try:
+            df = open_processor(open_reader(path))
+        except ValueError as err:
+            print(f"[ingest] skipped {path.name}: {err}")
+            continue
         if df.empty:
             continue
         df[C.COL_SPECIES] = species_from_filename(path)
@@ -92,7 +98,7 @@ def stage_ingest(out: Path) -> None:
         trajectory_id += 1
         parts.append(df)
     if not parts:
-        raise FileNotFoundError(f"No trajectories found under {open_dir} or the closed-pool pose folder.")
+        raise FileNotFoundError("No trajectories found in the open-water or closed-pool source folders.")
     trajectories = pd.concat(parts, ignore_index=True)
     trajectories.to_csv(out / FILES["trajectories"], index=False)
     print(f"[ingest] {len(trajectories)} frames, {trajectory_id} trajectories -> {out / FILES['trajectories']}")
@@ -257,6 +263,21 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {err}", file=sys.stderr)
         return 1
     return 0
+
+
+def _open_sources() -> tuple[list[Path], Callable[[Path], pd.DataFrame], Callable[[pd.DataFrame], pd.DataFrame]]:
+    """Open-water files, their reader and processor: SLEAP poses when configured, else charon boxes."""
+    try:
+        sleap_dir = config.get_path("open_sleap_dir")
+    except config.PathConfigError:
+        sleap_dir = None
+    if sleap_dir is not None and sleap_dir.is_dir():
+        files = sorted(sleap_dir.glob("*.analysis.h5"))
+        if files:
+            print(f"[ingest] open water from SLEAP: {sleap_dir}")
+            return files, lambda p: best_instance_per_frame(read_sleap_analysis(p)), process_open_pose_trajectory
+    open_dir = config.get_path("open_trajectories_dir")
+    return sorted(open_dir.rglob("*.h5")), load_open_trajectory, process_open_trajectory
 
 
 def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame], float]:

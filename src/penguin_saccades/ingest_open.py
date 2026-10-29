@@ -1,10 +1,12 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  penguin_saccades — ingest_open                                  ║
-# ║  « data set 1: charon detections to body trajectories »          ║
+# ║  « data set 1: charon boxes or SLEAP poses to trajectories »     ║
 # ╠══════════════════════════════════════════════════════════════════╣
 # ║  Reads the Faster-RCNN ``.tra`` text format written by charon,   ║
 # ║  keeps the best in-ROI detection per frame, and turns the        ║
-# ║  centre of mass track into metres, heading and speeds.           ║
+# ║  centre of mass track into metres, heading and speeds. The       ║
+# ║  SLEAP route takes the re-tracked poses instead and yields       ║
+# ║  head and body yaw from the skeleton, not from displacement.     ║
 # ╚══════════════════════════════════════════════════════════════════╝
 """Ingestion of data set 1 (overhead camera, charon Faster-RCNN detections)."""
 
@@ -17,6 +19,7 @@ import pandas as pd
 from matplotlib.path import Path as PolygonPath
 
 from penguin_saccades import constants as C
+from penguin_saccades.ingest_closed import gate_likelihood, pose_to_trajectory
 from penguin_saccades.kinematics import (
     fill_gaps,
     heading_from_displacement,
@@ -82,6 +85,24 @@ def process_open_trajectory(
     return out
 
 
+def process_open_pose_trajectory(
+    df_pose: pd.DataFrame,
+    spec: C.DatasetSpec = C.DATASET_OPEN_POSE,
+    score_threshold: float | None = None,
+) -> pd.DataFrame:
+    """SLEAP poses in movie pixels (one instance per frame) to the shared trajectory schema.
+
+    Poses are rescaled to the calibrated frame size, birds outside the water
+    ROI are dropped (penguins on land), then head and body yaw come from
+    the skeleton exactly as for data set 2.
+    """
+    threshold = C.SLEAP_SCORE_THRESHOLD if score_threshold is None else score_threshold
+    gated = gate_likelihood(df_pose, threshold=threshold)
+    gated = _mask_outside_water(gated, spec)
+    px_per_m = C.OPEN_MOVIE_SIZE_PX[0] / (spec.image_width_px * spec.m_per_px)
+    return pose_to_trajectory(gated, spec, px_per_m)
+
+
 def species_from_filename(path: Path) -> str:
     """Infer species from the data set 1 file name."""
     for key, species in C.SPECIES_FROM_FILENAME.items():
@@ -142,6 +163,18 @@ def _parse_line(line: str, polygon: PolygonPath | None) -> tuple[int, dict | Non
                 "center_of_mass_x": cx, "center_of_mass_y": cy,
             }
     return frame, best
+
+
+def _mask_outside_water(gated: pd.DataFrame, spec: C.DatasetSpec) -> pd.DataFrame:
+    """NaN every keypoint of frames whose neck lies outside the water ROI."""
+    polygon = _relative_polygon(C.OPEN_WATER_ROI_PX, (spec.image_width_px, spec.image_height_px))
+    width, height = C.OPEN_MOVIE_SIZE_PX
+    rel = np.column_stack([gated["neck_x"] / width, gated["neck_y"] / height])
+    on_land = np.isfinite(rel).all(axis=1) & ~polygon.contains_points(rel)
+    out = gated.copy()
+    coord_cols = [c for c in out.columns if c.endswith(("_x", "_y"))]
+    out.loc[on_land, coord_cols] = np.nan
+    return out
 
 
 def _relative_polygon(

@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TypeAlias
 
 import numpy as np
@@ -82,6 +82,17 @@ DATASET_CLOSED = DatasetSpec(
     image_height_px=None,
     m_per_px=None,
     smoothing_sigma_s=0.04,
+)
+
+# The open-water movies are 2704 x 1520 but the calibration and the water
+# ROI refer to the 1402 x 788 frames the detector saw, so SLEAP poses in
+# movie pixels are rescaled by the width ratio before either is applied.
+OPEN_MOVIE_SIZE_PX: tuple[int, int] = (2704, 1520)
+OPEN_POSE_SMOOTHING_SIGMA_S: float = 0.05    # TO RATIFY: three frames at 59.94 fps
+DATASET_OPEN_POSE = replace(
+    DATASET_OPEN,
+    label="Data set 1: overhead camera, SLEAP head and body pose",
+    smoothing_sigma_s=OPEN_POSE_SMOOTHING_SIGMA_S,
 )
 
 # Scale for data set 2 comes from the animal itself.  Source: assumed

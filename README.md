@@ -39,6 +39,8 @@ Keys that matter in `local_paths.json`:
 |-------------------------|-----------------------------------------------------------|
 | `open_trajectories_dir` | folder of `*.h5` trajectories from charon (data set 1)    |
 | `closed_dlc_dir`        | folder of DeepLabCut `*DLC*.csv` or `.h5` files (data set 2) |
+| `closed_sleap_dir`      | SLEAP `*.analysis.h5` for data set 2; when present it replaces `closed_dlc_dir` |
+| `open_sleap_dir`        | SLEAP `*.analysis.h5` for data set 1; when present it replaces the charon trajectories |
 | `output_dir`            | where CSV intermediates, tables and figures are written   |
 
 `local_paths.json` is gitignored. The environment variable
@@ -75,6 +77,7 @@ manuscript. Each is a single constant; change it there and rerun.
 |--------------------------------------|---------------|--------------------------------------------------|
 | `DATASET_OPEN.frame_rate_hz`         | 59.94         | read from the GoPro files; legacy code used 30   |
 | `DATASET_OPEN.smoothing_sigma_s`     | 0.10 s        | from the smoothing sweep (results/qc)            |
+| `OPEN_POSE_SMOOTHING_SIGMA_S`        | 0.05 s        | data set 1 from SLEAP poses: yaw comes from the skeleton, so the displacement kernel is not needed |
 | `DATASET_CLOSED.smoothing_sigma_s`   | 0.04 s        | one frame at 25 fps; 0.10 s erases head saccades |
 | `MAX_HEAD_BODY_ANGLE_DEG`            | 90            | skeleton gate against keypoint jumps between birds |
 | `SACCADE_VELOCITY_THRESHOLD_DEGPS`   | 200           | legacy scripts used 180, 200 and 250             |
