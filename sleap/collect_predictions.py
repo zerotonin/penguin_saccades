@@ -5,8 +5,8 @@
 # ║  Loads every <rec>.predictions.slp written on the cluster,       ║
 # ║  points its video at the local copy of <rec>.mp4, merges the     ║
 # ║  user labels of the training package, and saves one project for  ║
-# ║  the SLEAP GUI. Open it with python -m sleap.gui.app <file>;     ║
-# ║  the console script aborts on the 1.4.1 packaging conflict.      ║
+# ║  the SLEAP GUI. Open it with python sleap/gui.py <file>; the     ║
+# ║  console script aborts on the 1.4.1 packaging conflict.          ║
 # ╚══════════════════════════════════════════════════════════════════╝
 """Merge cluster predictions into one local SLEAP project for proofreading."""
 
