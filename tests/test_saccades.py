@@ -88,3 +88,30 @@ def test_triggered_windows_pad_and_flip():
     assert m[1, 2] == -8 and np.isnan(m[1, 4])
     z = S.zero_offset_rows(np.array([[np.nan, 2.0, 4.0, 6.0]]), n_reference=2)
     assert np.allclose(z[0, 1:], [-1, 1, 3])
+
+
+def test_saccade_peaking_on_bridged_frame_is_dropped():
+    yaw = _yaw([(3.0, 45.0), (6.0, -45.0)])
+    n = yaw.size
+    traj = pd.DataFrame({
+        C.COL_DATASET: "open", C.COL_SPECIES: "gentoo", C.COL_TRAJECTORY: 0, C.COL_SEGMENT: 0,
+        C.COL_FRAME: np.arange(n), C.COL_BODY_YAW: yaw,
+        C.COL_BRIDGED: (np.arange(n) >= round(2.9 * FPS)) & (np.arange(n) <= round(3.1 * FPS)),
+    })
+    sacc, _ = S.detect_in_trajectories(traj, C.COL_BODY_YAW, "body", {"open": FPS})
+    assert len(sacc) == 1 and abs(sacc["peak_time_s"].iloc[0] - 6.0) < 0.2
+
+
+def test_body_and_head_use_their_own_thresholds() -> None:
+    """A 150 deg/s turn is a body saccade (threshold 100) but not a head saccade (threshold 200)."""
+    fps = 60.0
+    t = np.arange(0, 6.0, 1 / fps)
+    yaw = np.deg2rad(30.0 / (1 + np.exp(-(t - 3.0) / 0.05)))   # ~150 deg/s peak, 30 deg amplitude
+    traj = pd.DataFrame({
+        C.COL_DATASET: "open", C.COL_SPECIES: "gentoo", C.COL_TRAJECTORY: 0, C.COL_SEGMENT: 0,
+        C.COL_FRAME: np.arange(t.size), C.COL_BODY_YAW: yaw, C.COL_HEAD_YAW: yaw,
+    })
+    body, _ = S.detect_in_trajectories(traj, C.COL_BODY_YAW, "body", {"open": fps})
+    head, _ = S.detect_in_trajectories(traj, C.COL_HEAD_YAW, "head", {"open": fps})
+    assert len(body) == 1 and 100 < abs(body["peak_speed_degps"].iloc[0]) < 200
+    assert head.empty

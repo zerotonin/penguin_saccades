@@ -52,7 +52,7 @@ template.
 ## Quickstart
 
 ```bash
-penguin-saccades all            # ingest -> saccades -> isi -> stats -> plots
+penguin-saccades all            # ingest -> saccades -> isi -> stats -> plots -> manuscript
 penguin-saccades saccades       # rerun one stage after changing a constant
 ```
 
@@ -65,6 +65,7 @@ Each stage reads the CSV written by its predecessor in `output_dir`:
 | `isi`      | `saccade_content.csv`, `interval_content.csv`, `saccade_budget.csv`, `head_body_compensation.csv`, `isi_chunks.csv` |
 | `stats`    | `summary_tables.csv` (n, median, bootstrap CI), `pairwise_tests.csv` (Fisher resampling, BH-FDR) |
 | `plots`    | `figures/*.svg|png|csv`                                                 |
+| `manuscript` | `manuscript/table_1.csv`, `manuscript/fig{1e,2,3,4,5}_*` and `supp1_*` as SVG, PNG and CSV; every figure is species-based and pools both cameras (marker shape = camera, 25 fps traces resampled onto the 60 fps grid, one pair of y-limits for all triggered averages) |
 
 Every analysis constant lives in `src/penguin_saccades/constants.py`.
 
@@ -77,10 +78,11 @@ manuscript. Each is a single constant; change it there and rerun.
 |--------------------------------------|---------------|--------------------------------------------------|
 | `DATASET_OPEN.frame_rate_hz`         | 59.94         | read from the GoPro files; legacy code used 30   |
 | `DATASET_OPEN.smoothing_sigma_s`     | 0.10 s        | from the smoothing sweep (results/qc)            |
-| `OPEN_POSE_SMOOTHING_SIGMA_S`        | 0.05 s        | data set 1 from SLEAP poses: yaw comes from the skeleton, so the displacement kernel is not needed |
+| `OPEN_POSE_SMOOTHING_SIGMA_S`        | 0.05 s        | data set 1 from SLEAP poses; head saccade count is 343 / 144 / 22 at 0.03 / 0.05 / 0.10 s, so this needs a decision |
 | `DATASET_CLOSED.smoothing_sigma_s`   | 0.04 s        | one frame at 25 fps; 0.10 s erases head saccades |
 | `MAX_HEAD_BODY_ANGLE_DEG`            | 90            | skeleton gate against keypoint jumps between birds |
-| `SACCADE_VELOCITY_THRESHOLD_DEGPS`   | 200           | legacy scripts used 180, 200 and 250             |
+| `MAX_GAP_FRAMES`                     | 10            | ratified: keypoint and detection gaps up to 10 frames are bridged, longer ones split segments |
+| `SACCADE_VELOCITY_THRESHOLDS_DEGPS`  | head 200, body 100 | ratified: the body yaw velocity has no saccade mode, 100 deg/s is where it leaves the head distribution (legacy 180/200/250 for both) |
 | `ASSOCIATION_WINDOW_S`               | 1.0 s         | head-body pairing window, not stated in legacy   |
 | `GENTOO_BODY_LENGTH_M`               | 0.80 m        | scale for data set 2                             |
 | `DLC_LIKELIHOOD_THRESHOLD`           | 0.75          | legacy code had no gating                        |

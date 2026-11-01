@@ -22,7 +22,7 @@ from penguin_saccades.kinematics import yaw_velocity_degps
 
 SACCADE_COLUMNS: tuple[str, ...] = (
     "start_idx", "peak_idx", "stop_idx", "peak_time_s", "duration_s",
-    "amplitude_deg", "peak_speed_degps", "direction",
+    "amplitude_deg", "peak_speed_degps", "direction", "bridged_peak",
 )
 INTERVAL_COLUMNS: tuple[str, ...] = ("start_idx", "stop_idx", "duration_s", "censored")
 
@@ -33,7 +33,7 @@ INTERVAL_COLUMNS: tuple[str, ...] = ("start_idx", "stop_idx", "duration_s", "cen
 def detect_saccades(
     yaw_rad: FloatArray,
     frame_rate_hz: float,
-    threshold_degps: float = C.SACCADE_VELOCITY_THRESHOLD_DEGPS,
+    threshold_degps: float = C.SACCADE_VELOCITY_THRESHOLDS_DEGPS["head"],
     min_separation_s: float = C.MIN_PEAK_SEPARATION_S,
     rel_height: float = C.BOUNDARY_REL_HEIGHT,
     settle_s: float = C.AMPLITUDE_SETTLE_S,
@@ -79,12 +79,18 @@ def filter_artefacts(
     min_amplitude_deg: float = C.MIN_SACCADE_AMPLITUDE_DEG,
     max_speed_degps: float = C.MAX_SACCADE_SPEED_DEGPS,
 ) -> pd.DataFrame:
-    """Drop events that are too long, too small or implausibly fast."""
+    """Drop events that are too long, too small, implausibly fast, or peaking on an interpolated frame.
+
+    A peak on a bridged frame means the turn was reconstructed by the gap
+    interpolation, so its speed and duration belong to the gap, not the bird.
+    """
     keep = (
         (saccades["duration_s"] <= max_duration_s)
         & (saccades["amplitude_deg"].abs() >= min_amplitude_deg)
         & (saccades["peak_speed_degps"].abs() <= max_speed_degps)
     )
+    if "bridged_peak" in saccades:
+        keep &= ~saccades["bridged_peak"].astype(bool)
     return saccades.loc[keep].reset_index(drop=True)
 
 
@@ -120,20 +126,25 @@ def detect_in_trajectories(
     yaw_col: str,
     source: str,
     frame_rates: dict[str, float],
+    threshold_degps: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Run detection and interval extraction per (trajectory, segment).
 
     Args:
-        trajectories: Shared trajectory table (one row per frame).
-        yaw_col:      ``COL_BODY_YAW`` or ``COL_HEAD_YAW``.
-        source:       Label written to the ``source`` column.
-        frame_rates:  Frame rate per dataset name.
+        trajectories:    Shared trajectory table (one row per frame).
+        yaw_col:         ``COL_BODY_YAW`` or ``COL_HEAD_YAW``.
+        source:          Label written to the ``source`` column; it also
+                         selects the threshold in ``SACCADE_VELOCITY_THRESHOLDS_DEGPS``.
+        frame_rates:     Frame rate per dataset name.
+        threshold_degps: Overrides the threshold of ``source``.
 
     Returns:
         ``(saccades, intervals)`` with indices expressed as global frame
         numbers of the segment and labelled by dataset, species,
         trajectory and segment.
     """
+    if threshold_degps is None:
+        threshold_degps = C.SACCADE_VELOCITY_THRESHOLDS_DEGPS[source]
     keys = [C.COL_DATASET, C.COL_SPECIES, C.COL_TRAJECTORY, C.COL_SEGMENT]
     sacc_parts: list[pd.DataFrame] = []
     int_parts: list[pd.DataFrame] = []
@@ -143,7 +154,10 @@ def detect_in_trajectories(
         if not np.isfinite(yaw).any():
             continue
         frames = seg[C.COL_FRAME].to_numpy()
-        sacc = filter_artefacts(detect_saccades(yaw, fps))
+        sacc = detect_saccades(yaw, fps, threshold_degps=threshold_degps)
+        bridged = seg[C.COL_BRIDGED].to_numpy(dtype=bool) if C.COL_BRIDGED in seg else np.zeros(len(seg), dtype=bool)
+        sacc["bridged_peak"] = bridged[sacc["peak_idx"].to_numpy(dtype=int)]
+        sacc = filter_artefacts(sacc)
         ints = intersaccadic_intervals(sacc, len(yaw), fps)
         for df, parts in ((sacc, sacc_parts), (ints, int_parts)):
             df = df.copy()

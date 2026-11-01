@@ -70,8 +70,9 @@ def plot_segment_overview(
     for _, s in saccades.iterrows():
         colour = C.BODYPART_COLOURS.get(s.get(C.COL_SOURCE, "body"), "k")
         ax_vel.axvspan(s["start_idx"] / _fps(segment), s["stop_idx"] / _fps(segment), color=colour, alpha=0.15, lw=0)
-    ax_vel.axhline(C.SACCADE_VELOCITY_THRESHOLD_DEGPS, color="k", ls=":", lw=0.5)
-    ax_vel.axhline(-C.SACCADE_VELOCITY_THRESHOLD_DEGPS, color="k", ls=":", lw=0.5)
+    for part, threshold in C.SACCADE_VELOCITY_THRESHOLDS_DEGPS.items():
+        for sign in (1, -1):
+            ax_vel.axhline(sign * threshold, color=C.BODYPART_COLOURS[part], ls=":", lw=0.5)
     ax_vel.set_ylabel(r"yaw velocity ($^\circ\,s^{-1}$)")
     ax_vel.legend(frameon=False, loc="upper right")
     ax_ang.set_ylabel(r"yaw ($^\circ$)")

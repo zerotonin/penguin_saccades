@@ -95,6 +95,20 @@ DATASET_OPEN_POSE = replace(
     smoothing_sigma_s=OPEN_POSE_SMOOTHING_SIGMA_S,
 )
 
+FRAME_RATES: dict[str, float] = {
+    DATASET_OPEN.name: DATASET_OPEN.frame_rate_hz,
+    DATASET_CLOSED.name: DATASET_CLOSED.frame_rate_hz,
+}
+# The gentoo head-body figures pool both cameras.  Triggered traces of
+# the slower camera are linearly resampled onto the faster grid before
+# averaging; individual events keep the camera as marker shape.
+POOLED_FRAME_RATE_HZ: float = max(FRAME_RATES.values())
+CAMERA_LABELS: dict[str, str] = {
+    DATASET_OPEN.name: "open water",
+    DATASET_CLOSED.name: "closed pool",
+}
+
+
 # Scale for data set 2 comes from the animal itself.  Source: assumed
 # adult gentoo beak-to-tail length; TO RATIFY with a citation.
 GENTOO_BODY_LENGTH_M: float = 0.80
@@ -118,10 +132,6 @@ HEAD_VECTOR: tuple[str, str] = ("neck", "beak")     # tail of vector, tip of vec
 BODY_VECTOR: tuple[str, str] = ("caudal", "neck")
 DLC_LIKELIHOOD_THRESHOLD: float = 0.75
 SLEAP_SCORE_THRESHOLD: float = 0.3      # TO RATIFY: peak heights, not probabilities; median 0.65
-# Gaps shorter than this (frames) are linearly interpolated; longer gaps
-# split the recording into separate segments.
-MAX_INTERPOLATION_GAP_FRAMES: int = 5
-
 # The closed-pool model is single-animal but two or three penguins share
 # the pool, so keypoints occasionally jump between birds.  A frame is
 # rejected when a skeleton segment (beak-neck, neck-caudal) leaves this
@@ -134,8 +144,10 @@ MAX_HEAD_BODY_ANGLE_DEG: float = 90.0   # TO RATIFY
 # ┌──────────────────────────────────────────────────────────────────┐
 # │ Trajectory processing  « segments, smoothing, heading validity » │
 # └──────────────────────────────────────────────────────────────────┘
-# Data set 1 detections may drop out; a gap up to this many frames is
-# bridged by interpolation, a longer one starts a new segment.
+# Detections and keypoints drop out; a gap up to this many frames is
+# bridged by linear interpolation (keypoint coordinates, never angles),
+# a longer one starts a new segment.  10 frames is 0.17 s at 60 fps and
+# 0.4 s at 25 fps.  Ratified 2026-11-01.
 MAX_GAP_FRAMES: int = 10
 # A segment must be at least this long to host a saccade window.
 MIN_SEGMENT_S: float = 1.0
@@ -156,7 +168,16 @@ MIN_HEADING_SPEED_MPS: float = 0.10
 # ┌────────────────────────────────────────────────────────────┐
 # │ Saccade detection  « one detector, one artefact filter »   │
 # └────────────────────────────────────────────────────────────┘
-SACCADE_VELOCITY_THRESHOLD_DEGPS: float = 200.0
+# Ratified 2026-11-02: the head threshold of 200 deg/s (legacy scripts
+# used 180, 200 and 250) and a body threshold of 100 deg/s.  The body
+# yaw velocity of a gentoo is a single exponential tail with no saccade
+# mode; 100 deg/s is where the body distribution falls away from the
+# head distribution (results/qc/body_yaw_velocity_histogram), and the
+# same cut applies to both data sets and both species.
+SACCADE_VELOCITY_THRESHOLDS_DEGPS: dict[str, float] = {
+    "head": 200.0,
+    "body": 100.0,
+}
 # Two peaks closer than this are one saccade.
 MIN_PEAK_SEPARATION_S: float = 0.10
 # Saccade boundaries are taken where |velocity| falls to this fraction
@@ -190,6 +211,9 @@ INTERVAL_CLASSES: tuple[str, ...] = ("body", "head", "any")
 # │ Triggered averages and ISI chunks  « window geometry »     │
 # └────────────────────────────────────────────────────────────┘
 TRIGGER_WINDOW_S: float = 1.0
+# Example-trace panel (manuscript Fig. 1E): the densest run of head
+# saccades inside a window of this length is shown.
+EXAMPLE_WINDOW_S: float = 3.0
 ISI_CHUNK_S: float = 1.0
 # Minimum frames an interval must have for head-body correlation.
 MIN_COMPENSATION_FRAMES: int = 5
@@ -221,13 +245,14 @@ COL_BODY_VEL = "body_yaw_speed_degps"
 COL_HEAD_YAW = "head_yaw_rad"
 COL_HEAD_VEL = "head_yaw_speed_degps"
 COL_TRANS = "translational_speed_mps"
+COL_BRIDGED = "bridged"          # frame filled by gap interpolation, not a detection
 COL_SOURCE = "source"            # "body" or "head"
 COL_SACCADE_TYPE = "saccade_type"
 COL_INTERVAL_CLASS = "interval_class"
 
 TRAJECTORY_COLUMNS: tuple[str, ...] = (
     COL_DATASET, COL_SPECIES, COL_TRAJECTORY, COL_SEGMENT, COL_FRAME, COL_TIME,
-    COL_X, COL_Y, COL_BODY_YAW, COL_BODY_VEL, COL_HEAD_YAW, COL_HEAD_VEL, COL_TRANS,
+    COL_X, COL_Y, COL_BODY_YAW, COL_BODY_VEL, COL_HEAD_YAW, COL_HEAD_VEL, COL_TRANS, COL_BRIDGED,
 )
 
 
@@ -261,10 +286,24 @@ SACCADE_TYPE_COLOURS: dict[str, str] = {
     "free_body":  WONG["vermilion"],
     "interval":   "#7F7F7F",
 }
+CAMERA_MARKERS: dict[str, str] = {
+    DATASET_OPEN.name:   "o",
+    DATASET_CLOSED.name: "^",
+}
 
+# Shared y-limits for every saccade-triggered average so panels compare
+# at a glance: velocity in deg/s, angle in deg.
+TRIGGERED_YLIM: dict[str, tuple[float, float]] = {
+    "velocity": (-150.0, 300.0),
+    "angle":    (-20.0, 60.0),
+}
 FIGURE_DPI: int = 300
 FIGURE_SIZE_SINGLE: tuple[float, float] = (3.5, 3.0)
 FIGURE_SIZE_DOUBLE: tuple[float, float] = (7.0, 3.0)
 FIGURE_SIZE_A4_LANDSCAPE: tuple[float, float] = (11.7, 8.3)
 SVG_PARAMS: dict[str, object] = {"svg.fonttype": "none"}
+# Yaw-velocity histograms: log-spaced |velocity| bins shared by all data
+# sets so the panels are comparable; the lower edge is below the
+# smallest non-zero frame-to-frame step at 60 fps.
+YAW_VELOCITY_HIST_BINS: tuple[float, float, int] = (1.0, 3000.0, 50)   # (lo, hi, n) deg/s
 FONT_SIZE: int = 9
