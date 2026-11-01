@@ -1,6 +1,6 @@
 # ╔══════════════════════════════════════════════════════════════════╗
 # ║  penguin_saccades — cli                                          ║
-# ║  « five re-runnable stages with CSV hand-offs »                  ║
+# ║  « six re-runnable stages with CSV hand-offs »                   ║
 # ╠══════════════════════════════════════════════════════════════════╣
 # ║  Each stage reads the CSV its predecessor wrote in output_dir    ║
 # ║  and writes its own, so any stage can be rerun alone after a     ║
@@ -16,7 +16,6 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -42,14 +41,11 @@ from penguin_saccades.isi import (
     interval_content,
     saccade_budget,
 )
-from penguin_saccades.saccades import detect_in_trajectories, triggered_windows, zero_offset_rows
+from penguin_saccades.saccades import detect_in_trajectories
 from penguin_saccades.stats import pairwise_fisher, summarise
 from penguin_saccades.taxonomy import associate_head_body, classified_intervals
 
-FRAME_RATES: dict[str, float] = {
-    C.DATASET_OPEN.name: C.DATASET_OPEN.frame_rate_hz,
-    C.DATASET_CLOSED.name: C.DATASET_CLOSED.frame_rate_hz,
-}
+FRAME_RATES = C.FRAME_RATES
 FILES = {
     "trajectories": "trajectories.csv",
     "saccades": "saccades.csv",
@@ -69,10 +65,9 @@ def stage_ingest(out: Path) -> None:
     """Both data sets to one trajectory table."""
     parts: list[pd.DataFrame] = []
     trajectory_id = 0
-    open_files, open_reader, open_processor = _open_sources()
-    for path in tqdm(open_files, desc="data set 1 (open)"):
+    for path, reader, processor in tqdm(_open_sources(), desc="data set 1 (open)"):
         try:
-            df = open_processor(open_reader(path))
+            df = processor(reader(path))
         except ValueError as err:
             print(f"[ingest] skipped {path.name}: {err}")
             continue
@@ -184,6 +179,9 @@ def stage_plots(out: Path) -> None:
     saccades["duration_ms"] = saccades["duration_s"] * 1000.0
     saccades["abs_peak_speed_degps"] = saccades["peak_speed_degps"].abs()
     saccades["label"] = saccades[C.COL_SPECIES] + " " + saccades[C.COL_SACCADE_TYPE]
+    fig, table = viz.plot_yaw_velocity_histograms(trajectories)
+    viz.save_figure(fig, "yaw_velocity_histograms", figdir, table)
+    matplotlib.pyplot.close(fig)
     colours = {lab: C.SACCADE_TYPE_COLOURS.get(lab.split(" ")[-1], "k") for lab in saccades["label"].unique()}
     for value, ylabel, log_y in (("duration_ms", "saccade duration (ms)", True),
                                  ("abs_peak_speed_degps", r"peak yaw velocity ($^\circ\,s^{-1}$)", True)):
@@ -203,46 +201,65 @@ def stage_plots(out: Path) -> None:
                        r"translational speed (m$\,s^{-1}$)", ax=ax)
     viz.save_figure(fig, "raincloud_translation_saccade_vs_interval", figdir, both)
     matplotlib.pyplot.close(fig)
-    # Saccade-triggered averages per data set and source.
-    for (dataset, source), sacc in saccades.groupby([C.COL_DATASET, C.COL_SOURCE]):
-        fps = FRAME_RATES[dataset]
-        half = round(C.TRIGGER_WINDOW_S * fps / 2)
-        time_s = np.arange(-half, half + 1) / fps
+    # Saccade-triggered averages per species and source, cameras pooled.
+    for (species, source), sacc in saccades.groupby([C.COL_SPECIES, C.COL_SOURCE]):
         tables_v, tables_a = [], []
+        subset = trajectories[trajectories[C.COL_SPECIES] == species]
         for part, yaw_col, vel_col in (("body", C.COL_BODY_YAW, C.COL_BODY_VEL), ("head", C.COL_HEAD_YAW, C.COL_HEAD_VEL)):
-            mats_v, mats_a = [], []
-            for key, seg in trajectories[trajectories[C.COL_DATASET] == dataset].groupby(
-                    [C.COL_TRAJECTORY, C.COL_SEGMENT]):
-                if not seg[yaw_col].notna().any():
-                    continue
-                s = sacc[(sacc[C.COL_TRAJECTORY] == key[0]) & (sacc[C.COL_SEGMENT] == key[1])]
-                if s.empty:
-                    continue
-                frames = seg[C.COL_FRAME].to_numpy()
-                peaks = np.searchsorted(frames, s["peak_idx"].to_numpy(dtype=int))
-                flip = (s["direction"] == C.DIRECTION_OF_NEGATIVE_VELOCITY).to_numpy()
-                mats_v.append(triggered_windows(seg[vel_col].to_numpy(), peaks, half, flip))
-                mats_a.append(zero_offset_rows(triggered_windows(np.rad2deg(seg[yaw_col].to_numpy()), peaks, half, flip)))
-            if mats_v:
-                tables_v.append(viz.triggered_average_table(np.vstack(mats_v), time_s, part))
-                tables_a.append(viz.triggered_average_table(np.vstack(mats_a), time_s, part))
+            mat_v, mat_a, _, time_s = viz.pooled_triggered_matrices(subset, sacc, yaw_col, vel_col)
+            if mat_v.shape[0]:
+                tables_v.append(viz.triggered_average_table(mat_v, time_s, part))
+                tables_a.append(viz.triggered_average_table(mat_a, time_s, part))
         if not tables_v:
             continue
         fig, axes = matplotlib.pyplot.subplots(1, 2, figsize=C.FIGURE_SIZE_DOUBLE)
-        viz.plot_triggered_average(tables_v, C.BODYPART_COLOURS, r"yaw velocity ($^\circ\,s^{-1}$)", ax=axes[0])
-        viz.plot_triggered_average(tables_a, C.BODYPART_COLOURS, r"yaw ($^\circ$)", ax=axes[1])
-        fig.suptitle(f"{dataset}: {source}-saccade triggered")
-        viz.save_figure(fig, f"triggered_{dataset}_{source}", figdir,
+        viz.plot_triggered_average(tables_v, C.BODYPART_COLOURS, r"yaw velocity ($^\circ\,s^{-1}$)", ax=axes[0],
+                                   ylim=C.TRIGGERED_YLIM["velocity"])
+        viz.plot_triggered_average(tables_a, C.BODYPART_COLOURS, r"yaw ($^\circ$)", ax=axes[1],
+                                   ylim=C.TRIGGERED_YLIM["angle"])
+        fig.suptitle(f"{species}: {source}-saccade triggered")
+        viz.save_figure(fig, f"triggered_{species}_{source}", figdir,
                         pd.concat(tables_v + tables_a, ignore_index=True))
         matplotlib.pyplot.close(fig)
     print(f"[plots] figures written to {figdir}")
+
+
+def stage_manuscript(out: Path) -> None:
+    """The paper's figures and Table 1, written to ``<output_dir>/manuscript``."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from penguin_saccades import manuscript, viz
+
+    viz.apply_style()
+    figdir = out / "manuscript"
+    figdir.mkdir(parents=True, exist_ok=True)
+    trajectories = _read(out, "trajectories")
+    saccades = _read(out, "saccade_content")
+    intervals = _read(out, "interval_content")
+    chunks = _read(out, "chunks")
+    manuscript.table_1(saccades, intervals).to_csv(figdir / "table_1.csv", index=False)
+    figures: list[tuple[str, Callable[[], tuple[matplotlib.figure.Figure, pd.DataFrame]]]] = [
+        ("fig2_body_saccades", lambda: manuscript.figure_body_saccades(trajectories, saccades)),
+    ]
+    figures.append(("fig5_durations", lambda: manuscript.figure_durations_vs_intervals(saccades, intervals)))
+    for species in sorted(saccades[C.COL_SPECIES].unique()):
+        figures.append((f"supp1_interval_chunks_{species}", lambda s=species: manuscript.figure_interval_chunks(chunks, s)))
+    for species in sorted(saccades.loc[saccades[C.COL_SOURCE] == "head", C.COL_SPECIES].unique()):
+        figures.append((f"fig1e_example_{species}", lambda s=species: manuscript.figure_example_traces(trajectories, saccades, s)))
+        figures.append((f"fig3_head_body_{species}", lambda s=species: manuscript.figure_head_body_coordination(trajectories, saccades, s)))
+        figures.append((f"fig4_saccade_types_{species}", lambda s=species: manuscript.figure_saccade_types(saccades, s)))
+    for stem, make in tqdm(figures, desc="manuscript figures"):
+        fig, table = make()
+        viz.save_figure(fig, stem, figdir, table)
+        matplotlib.pyplot.close(fig)
+    print(f"[manuscript] table_1.csv and {len(figures)} figures written to {figdir}")
 
 
 # ┌────────────────────────────────────────────────────────────┐
 # │ Entry point  « argparse »                                  │
 # └────────────────────────────────────────────────────────────┘
 STAGES = {"ingest": stage_ingest, "saccades": stage_saccades, "isi": stage_isi,
-          "stats": stage_stats, "plots": stage_plots}
+          "stats": stage_stats, "plots": stage_plots, "manuscript": stage_manuscript}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -265,19 +282,31 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _open_sources() -> tuple[list[Path], Callable[[Path], pd.DataFrame], Callable[[pd.DataFrame], pd.DataFrame]]:
-    """Open-water files, their reader and processor: SLEAP poses when configured, else charon boxes."""
+OpenSource = tuple[Path, Callable[[Path], pd.DataFrame], Callable[[pd.DataFrame], pd.DataFrame]]
+
+
+def _open_sources() -> list[OpenSource]:
+    """Open-water files with reader and processor: SLEAP poses where a movie has them, charon boxes otherwise.
+
+    Rockhopper movies and the damaged 04-03 recording have no SLEAP run, so
+    they keep the displacement heading; the ``source_file`` column tells
+    the routes apart.
+    """
+    charon = sorted(config.get_path("open_trajectories_dir").rglob("*.h5"))
     try:
         sleap_dir = config.get_path("open_sleap_dir")
     except config.PathConfigError:
         sleap_dir = None
-    if sleap_dir is not None and sleap_dir.is_dir():
-        files = sorted(sleap_dir.glob("*.analysis.h5"))
-        if files:
-            print(f"[ingest] open water from SLEAP: {sleap_dir}")
-            return files, lambda p: best_instance_per_frame(read_sleap_analysis(p)), process_open_pose_trajectory
-    open_dir = config.get_path("open_trajectories_dir")
-    return sorted(open_dir.rglob("*.h5")), load_open_trajectory, process_open_trajectory
+    sleap_files = sorted(sleap_dir.glob("*.analysis.h5")) if sleap_dir is not None and sleap_dir.is_dir() else []
+    posed = {p.name.replace(".analysis.h5", "") for p in sleap_files}
+    if sleap_files:
+        print(f"[ingest] open water from SLEAP for {len(posed)} movies: {sleap_dir}")
+    sources: list[OpenSource] = [
+        (p, lambda p: best_instance_per_frame(read_sleap_analysis(p)), process_open_pose_trajectory)
+        for p in sleap_files
+    ]
+    sources += [(p, load_open_trajectory, process_open_trajectory) for p in charon if p.stem not in posed]
+    return sources
 
 
 def _closed_pose_files() -> tuple[list[Path], Callable[[Path], pd.DataFrame], float]:
