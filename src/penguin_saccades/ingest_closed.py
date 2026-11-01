@@ -20,6 +20,7 @@ import pandas as pd
 
 from penguin_saccades import constants as C
 from penguin_saccades.kinematics import (
+    interpolate_short_gaps,
     sigma_frames,
     smooth,
     split_segments,
@@ -113,14 +114,18 @@ def gate_likelihood(
 ) -> pd.DataFrame:
     """Set x and y to NaN where the likelihood is below threshold; bridge short gaps."""
     threshold = C.DLC_LIKELIHOOD_THRESHOLD if threshold is None else threshold
-    max_gap_frames = C.MAX_INTERPOLATION_GAP_FRAMES if max_gap_frames is None else max_gap_frames
+    max_gap_frames = C.MAX_GAP_FRAMES if max_gap_frames is None else max_gap_frames
     out = df.copy()
+    bridged = np.zeros(len(out), dtype=bool)
     for kp in keypoints:
         low = out[f"{kp}_likelihood"] < threshold
         for axis in ("x", "y"):
             col = f"{kp}_{axis}"
             out.loc[low, col] = np.nan
-            out[col] = out[col].interpolate(limit=max_gap_frames, limit_area="inside")
+            missing = out[col].isna().to_numpy()
+            out[col] = interpolate_short_gaps(out[col].to_numpy(dtype=float), max_gap_frames)
+            bridged |= missing & np.isfinite(out[col].to_numpy(dtype=float))
+    out[C.COL_BRIDGED] = bridged | out.get(C.COL_BRIDGED, False)
     return out
 
 
@@ -147,19 +152,17 @@ def pose_to_trajectory(gated: pd.DataFrame, spec: C.DatasetSpec, px_per_m: float
     """Gated keypoints, indexed by frame, to the shared trajectory schema.
 
     Head yaw is the neck-to-beak vector, body yaw the caudal-to-neck
-    vector; frames failing :func:`skeleton_is_plausible` split segments.
+    vector.  Frames failing :func:`skeleton_is_plausible` are treated
+    like dropouts: bridged when the run is at most ``MAX_GAP_FRAMES``
+    (keypoints interpolated, yaw recomputed), otherwise a segment edge.
     """
     fps = spec.frame_rate_hz
     sigma = sigma_frames(spec.smoothing_sigma_s, fps)
-    head_tail, head_tip = C.HEAD_VECTOR
-    body_tail, body_tip = C.BODY_VECTOR
-    head_yaw = vector_angle(
-        gated[f"{head_tail}_x"], gated[f"{head_tail}_y"], gated[f"{head_tip}_x"], gated[f"{head_tip}_y"]
-    )
-    body_yaw = vector_angle(
-        gated[f"{body_tail}_x"], gated[f"{body_tail}_y"], gated[f"{body_tip}_x"], gated[f"{body_tip}_y"]
-    )
-    valid = np.isfinite(head_yaw) & np.isfinite(body_yaw) & skeleton_is_plausible(gated, head_yaw, body_yaw)
+    head_yaw, body_yaw = _yaw_angles(gated)
+    plausible = skeleton_is_plausible(gated, head_yaw, body_yaw)
+    gated = bridge_implausible_frames(gated, plausible)
+    head_yaw, body_yaw = _yaw_angles(gated)
+    valid = np.isfinite(head_yaw) & np.isfinite(body_yaw)
     min_len = round(C.MIN_SEGMENT_S * fps)
     parts: list[pd.DataFrame] = []
     for seg_id, frames in enumerate(split_segments(np.where(valid)[0], 0, min_len)):
@@ -179,12 +182,47 @@ def pose_to_trajectory(gated: pd.DataFrame, spec: C.DatasetSpec, px_per_m: float
             C.COL_HEAD_YAW: h,
             C.COL_HEAD_VEL: yaw_velocity_degps(h, fps),
             C.COL_TRANS: translational_speed(x_m, y_m, fps),
+            C.COL_BRIDGED: gated[C.COL_BRIDGED].to_numpy(dtype=bool)[sl] if C.COL_BRIDGED in gated else False,
         }))
     if not parts:
         return pd.DataFrame({c: pd.Series(dtype=float) for c in C.TRAJECTORY_COLUMNS})
     out = pd.concat(parts, ignore_index=True)
     out[C.COL_DATASET] = spec.name
     return out
+
+
+def bridge_implausible_frames(
+    gated: pd.DataFrame, plausible: np.ndarray, max_gap_frames: int | None = None
+) -> pd.DataFrame:
+    """NaN every keypoint of implausible frames, then re-bridge runs up to ``max_gap_frames``.
+
+    Frames already bridged by :func:`gate_likelihood` count as missing
+    again, so a dropout adjoining implausible frames can never be
+    interpolated across more than ``max_gap_frames`` in total.
+    """
+    max_gap_frames = C.MAX_GAP_FRAMES if max_gap_frames is None else max_gap_frames
+    out = gated.copy()
+    cols = [f"{kp}_{axis}" for kp in C.DLC_KEYPOINTS for axis in ("x", "y")]
+    already = out[C.COL_BRIDGED].to_numpy(dtype=bool) if C.COL_BRIDGED in out else np.zeros(len(out), dtype=bool)
+    missing = ~plausible | already
+    out.loc[missing, cols] = np.nan
+    for col in cols:
+        out[col] = interpolate_short_gaps(out[col].to_numpy(dtype=float), max_gap_frames)
+    out[C.COL_BRIDGED] = missing & np.isfinite(out[cols].to_numpy(dtype=float)).all(axis=1)
+    return out
+
+
+def _yaw_angles(gated: pd.DataFrame) -> tuple[np.ndarray, np.ndarray]:
+    """Unwrapped head (neck to beak) and body (caudal to neck) yaw in radians."""
+    head_tail, head_tip = C.HEAD_VECTOR
+    body_tail, body_tip = C.BODY_VECTOR
+    head_yaw = vector_angle(
+        gated[f"{head_tail}_x"], gated[f"{head_tail}_y"], gated[f"{head_tip}_x"], gated[f"{head_tip}_y"]
+    )
+    body_yaw = vector_angle(
+        gated[f"{body_tail}_x"], gated[f"{body_tail}_y"], gated[f"{body_tip}_x"], gated[f"{body_tip}_y"]
+    )
+    return head_yaw, body_yaw
 
 
 def skeleton_is_plausible(

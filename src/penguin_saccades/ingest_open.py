@@ -77,6 +77,7 @@ def process_open_trajectory(
             C.COL_HEAD_YAW: np.nan,
             C.COL_HEAD_VEL: np.nan,
             C.COL_TRANS: translational_speed(x_m, y_m, fps),
+            C.COL_BRIDGED: ~seg.index.isin(df_raw.index),
         }))
     if not parts:
         return pd.DataFrame(columns=list(C.TRAJECTORY_COLUMNS))

@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from itertools import pairwise
+
 import numpy as np
 import pandas as pd
 from scipy.ndimage import gaussian_filter1d
@@ -37,6 +39,20 @@ def split_segments(
     breaks = np.where(missing > max_gap_frames)[0] + 1
     pieces = np.split(frames, breaks)
     return [p for p in pieces if (p[-1] - p[0] + 1) >= min_length_frames]
+
+
+def interpolate_short_gaps(x: FloatArray, max_gap_frames: int) -> FloatArray:
+    """Linearly fill interior NaN runs of at most ``max_gap_frames``; longer runs stay NaN.
+
+    Unlike ``pandas.interpolate(limit=...)`` this never fills the first
+    frames of a longer gap, so no value is extrapolated into a dropout.
+    """
+    x = np.asarray(x, dtype=float).copy()
+    runs = finite_runs(x)
+    for (_, stop), (next_start, _) in pairwise(runs):
+        if next_start - stop <= max_gap_frames:
+            x[stop:next_start] = np.interp(np.arange(stop, next_start), [stop - 1, next_start], [x[stop - 1], x[next_start]])
+    return x
 
 
 def fill_gaps(df: pd.DataFrame) -> pd.DataFrame:

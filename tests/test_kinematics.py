@@ -64,3 +64,11 @@ def test_yaw_velocity_units():
     v = K.yaw_velocity_degps(yaw, fps)
     assert np.allclose(v[1:-1], 25.0)
     assert K.sigma_frames(0.1, fps) == 2.5
+
+
+def test_interpolate_short_gaps_never_fills_part_of_a_long_gap():
+    x = np.array([1.0, np.nan, np.nan, 4.0, np.nan, np.nan, np.nan, np.nan, 9.0, np.nan])
+    out = K.interpolate_short_gaps(x, max_gap_frames=2)
+    assert out[1] == 2.0 and out[2] == 3.0
+    assert np.isnan(out[4:8]).all()          # 4-frame gap stays open, no partial fill
+    assert np.isnan(out[9])                  # trailing NaN is not interior
