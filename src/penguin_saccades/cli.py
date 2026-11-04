@@ -288,9 +288,10 @@ OpenSource = tuple[Path, Callable[[Path], pd.DataFrame], Callable[[pd.DataFrame]
 def _open_sources() -> list[OpenSource]:
     """Open-water files with reader and processor: SLEAP poses where a movie has them, charon boxes otherwise.
 
-    Rockhopper movies and the damaged 04-03 recording have no SLEAP run, so
-    they keep the displacement heading; the ``source_file`` column tells
-    the routes apart.
+    Rockhopper movies have no accepted SLEAP run (the gentoo model swaps
+    their head and tail) and the 04-03 recording is damaged, so they keep
+    the displacement heading; the ``source_file`` column tells the routes
+    apart.
     """
     charon = sorted(config.get_path("open_trajectories_dir").rglob("*.h5"))
     try:

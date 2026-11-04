@@ -98,3 +98,23 @@ anyway.  Point `open_sleap_dir` at the predictions and
 (`process_open_pose_trajectory`), rescaling movie pixels to the calibrated
 1402 x 788 frame and dropping birds outside the water ROI, instead of
 heading from displacement.
+
+### Rockhoppers
+
+The gentoo open-water model finds rockhoppers but confuses head and tail:
+the predicted body axis points against the swimming direction in about a
+quarter of moving frames (gentoo: under one in ten), so its head and body
+yaw would carry false 180 degree turns. Rockhoppers therefore need their
+own labels. Track the movies with the gentoo model once, then build a
+project whose suggested frames start from those predictions, half of them
+drawn from frames that look tail-first:
+
+```bash
+python sleap/build_prelabelled_project.py <predictions dir>/Rockhopper_*.predictions.slp \
+    rockhopper_labels.slp --video-dir <rockhopper movies dir>                      # sleap env
+python sleap/gui.py rockhopper_labels.slp
+```
+
+Correct each suggestion (double-click a predicted instance to make it
+editable), then merge these labels with the gentoo ones so one model
+learns both species, and retrain with the `open` preset.
