@@ -22,7 +22,7 @@ from penguin_saccades.kinematics import yaw_velocity_degps
 
 SACCADE_COLUMNS: tuple[str, ...] = (
     "start_idx", "peak_idx", "stop_idx", "peak_time_s", "duration_s",
-    "amplitude_deg", "peak_speed_degps", "direction", "bridged_peak",
+    "amplitude_deg", "peak_speed_degps", "direction", "bridged_peak", "bridged_window_share",
 )
 INTERVAL_COLUMNS: tuple[str, ...] = ("start_idx", "stop_idx", "duration_s", "censored")
 
@@ -78,11 +78,15 @@ def filter_artefacts(
     max_duration_s: float = C.MAX_SACCADE_DURATION_S,
     min_amplitude_deg: float = C.MIN_SACCADE_AMPLITUDE_DEG,
     max_speed_degps: float = C.MAX_SACCADE_SPEED_DEGPS,
+    max_bridged_share: float = C.MAX_BRIDGED_WINDOW_SHARE,
 ) -> pd.DataFrame:
-    """Drop events that are too long, too small, implausibly fast, or peaking on an interpolated frame.
+    """Drop events that are too long, too small, implausibly fast, or built on interpolated frames.
 
     A peak on a bridged frame means the turn was reconstructed by the gap
-    interpolation, so its speed and duration belong to the gap, not the bird.
+    interpolation, so its speed and duration belong to the gap, not the
+    bird.  A peak whose triggered window is mostly bridged is dropped for
+    the same reason: it would add interpolation, not behaviour, to the
+    averages.
     """
     keep = (
         (saccades["duration_s"] <= max_duration_s)
@@ -91,7 +95,23 @@ def filter_artefacts(
     )
     if "bridged_peak" in saccades:
         keep &= ~saccades["bridged_peak"].astype(bool)
+    if "bridged_window_share" in saccades:
+        keep &= saccades["bridged_window_share"].astype(float) <= max_bridged_share
     return saccades.loc[keep].reset_index(drop=True)
+
+
+def bridged_window_share(bridged: np.ndarray, peak_idx: np.ndarray, half_window: int) -> np.ndarray:
+    """Share of bridged frames in the window of ``half_window`` frames around each peak, clipped to the segment."""
+    cumulative = np.concatenate([[0], np.cumsum(bridged.astype(int))])
+    lo = np.clip(peak_idx - half_window, 0, bridged.size)
+    hi = np.clip(peak_idx + half_window + 1, 0, bridged.size)
+    n = np.maximum(hi - lo, 1)
+    return (cumulative[hi] - cumulative[lo]) / n
+
+
+def trigger_half_window(frame_rate_hz: float) -> int:
+    """Frames on each side of a peak in the triggered window."""
+    return round(C.TRIGGER_WINDOW_S * frame_rate_hz / 2)
 
 
 # ┌────────────────────────────────────────────────────────────┐
@@ -156,7 +176,9 @@ def detect_in_trajectories(
         frames = seg[C.COL_FRAME].to_numpy()
         sacc = detect_saccades(yaw, fps, threshold_degps=threshold_degps)
         bridged = seg[C.COL_BRIDGED].to_numpy(dtype=bool) if C.COL_BRIDGED in seg else np.zeros(len(seg), dtype=bool)
-        sacc["bridged_peak"] = bridged[sacc["peak_idx"].to_numpy(dtype=int)]
+        peak_idx = sacc["peak_idx"].to_numpy(dtype=int)
+        sacc["bridged_peak"] = bridged[peak_idx]
+        sacc["bridged_window_share"] = bridged_window_share(bridged, peak_idx, trigger_half_window(fps))
         sacc = filter_artefacts(sacc)
         ints = intersaccadic_intervals(sacc, len(yaw), fps)
         for df, parts in ((sacc, sacc_parts), (ints, int_parts)):

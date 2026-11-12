@@ -102,6 +102,23 @@ def test_saccade_peaking_on_bridged_frame_is_dropped():
     assert len(sacc) == 1 and abs(sacc["peak_time_s"].iloc[0] - 6.0) < 0.2
 
 
+def test_saccade_in_a_mostly_bridged_window_is_dropped():
+    """The peak at 3 s sits on a detection but its window is 70 % bridged; the one at 6 s is clean."""
+    yaw = _yaw([(3.0, 45.0), (6.0, -45.0)])
+    n = yaw.size
+    t = np.arange(n) / FPS
+    bridged = (t >= 2.5) & (t <= 3.5) & ~((t >= 2.85) & (t <= 3.15))
+    traj = pd.DataFrame({
+        C.COL_DATASET: "open", C.COL_SPECIES: "gentoo", C.COL_TRAJECTORY: 0, C.COL_SEGMENT: 0,
+        C.COL_FRAME: np.arange(n), C.COL_BODY_YAW: yaw, C.COL_BRIDGED: bridged,
+    })
+    sacc, _ = S.detect_in_trajectories(traj, C.COL_BODY_YAW, "body", {"open": FPS})
+    assert len(sacc) == 1 and abs(sacc["peak_time_s"].iloc[0] - 6.0) < 0.2
+    assert sacc["bridged_window_share"].iloc[0] == 0.0
+    share = S.bridged_window_share(bridged, np.array([int(3.0 * FPS), 0]), S.trigger_half_window(FPS))
+    assert 0.6 < share[0] < 0.8 and share[1] == 0.0          # the window at frame 0 is clipped
+
+
 def test_body_and_head_use_their_own_thresholds() -> None:
     """A 150 deg/s turn is a body saccade (threshold 100) but not a head saccade (threshold 200)."""
     fps = 60.0

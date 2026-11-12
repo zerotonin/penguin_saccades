@@ -11,8 +11,12 @@ from penguin_saccades import constants as C
 IM_W, IM_H = C.DATASET_OPEN.image_width_px, C.DATASET_OPEN.image_height_px
 
 
-def piecewise_heading(t: np.ndarray, saccades: list[tuple[float, float]], ramp_s: float = 0.15) -> np.ndarray:
-    """Heading (rad) that is flat except for smooth ramps of given amplitude (deg) at given times."""
+def piecewise_heading(t: np.ndarray, saccades: list[tuple[float, float]], ramp_s: float = 0.20) -> np.ndarray:
+    """Heading (rad) that is flat except for smooth ramps of given amplitude (deg) at given times.
+
+    A raised-cosine ramp peaks at (pi / 2) * amplitude / ramp_s, so 60 deg over
+    0.2 s reaches 471 deg/s: a saccade, but under MAX_SACCADE_SPEED_DEGPS.
+    """
     heading = np.zeros_like(t)
     for t0, amp_deg in saccades:
         ramp = (t >= t0) & (t < t0 + ramp_s)
@@ -53,7 +57,7 @@ def open_track(
 def dlc_track(
     duration_s: float = 10.0,
     body_saccades: list[tuple[float, float]] = ((5.0, 60.0),),
-    head_saccades: list[tuple[float, float]] = ((4.9, 50.0), (2.0, 30.0)),
+    head_saccades: list[tuple[float, float]] = ((4.9, -50.0), (2.0, 30.0)),
     speed_mps: float = 1.0,
     fps: float = C.DATASET_CLOSED.frame_rate_hz,
     px_per_m: float = 200.0,

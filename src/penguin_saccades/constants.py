@@ -138,7 +138,12 @@ SLEAP_SCORE_THRESHOLD: float = 0.3      # TO RATIFY: peak heights, not probabili
 # range of its per-recording median length, or when the head points
 # further from the body axis than a penguin neck allows.
 SKELETON_LENGTH_RATIO: tuple[float, float] = (0.5, 1.5)
-MAX_HEAD_BODY_ANGLE_DEG: float = 90.0   # TO RATIFY
+# A penguin can look sideways but not backwards.  In the gentoo
+# open-water frames the head-body angle has its 95th percentile at 50
+# degrees; the rockhopper frames add a second mode above 90 from
+# beak-tail swaps, with misplaced beaks scattered in between.  60
+# drops 3 % of gentoo frames and 16 % of rockhopper frames.
+MAX_HEAD_BODY_ANGLE_DEG: float = 60.0   # TO RATIFY
 
 
 # ┌──────────────────────────────────────────────────────────────────┐
@@ -151,6 +156,30 @@ MAX_HEAD_BODY_ANGLE_DEG: float = 90.0   # TO RATIFY
 MAX_GAP_FRAMES: int = 10
 # A segment must be at least this long to host a saccade window.
 MIN_SEGMENT_S: float = 1.0
+
+
+# ┌────────────────────────────────────────────────────────────┐
+# │ Quality control  « gates of the pose route, in order »     │
+# └────────────────────────────────────────────────────────────┘
+# Frame counts reported per movie by ``penguin-saccades qc``; each gate
+# is a subset of the one before, except that bridging can refill frames.
+QC_GATES: tuple[str, ...] = (
+    "frames", "detected", "head_points", "body_points", "all_points",
+    "both_yaws", "plausible", "valid", "in_segments",
+)
+QC_GATE_LABELS: dict[str, str] = {
+    "frames": "movie frames",
+    "detected": "bird detected",
+    "head_points": "beak + neck pass gate",
+    "body_points": "neck + tail pass gate",
+    "all_points": "all five pass gate",
+    "both_yaws": "both yaws (gate, water, bridged)",
+    "plausible": "plausible skeleton",
+    "valid": "valid after bridging",
+    "in_segments": f"in segments >= {MIN_SEGMENT_S:g} s",
+}
+# A yaw change above this in one frame is a keypoint swap, not a turn.
+QC_YAW_JUMP_DEG: float = 30.0
 # Gaussian smoothing of positions and angles, in seconds, set per data
 # set in DatasetSpec because the measurement differs.  Data set 1 yaw
 # comes from centre-of-mass displacement of ~1.3 px per frame at 60 fps,
@@ -189,7 +218,16 @@ BOUNDARY_REL_HEIGHT: float = 0.95
 AMPLITUDE_SETTLE_S: float = 0.10
 MAX_SACCADE_DURATION_S: float = 1.0
 MIN_SACCADE_AMPLITUDE_DEG: float = 10.0
-MAX_SACCADE_SPEED_DEGPS: float = 3000.0
+# No gentoo saccade peaks above 475 deg/s (head) or 395 deg/s (body) in
+# either data set; the rockhopper peaks above that are whole-skeleton
+# reversals (beak and tail swapped together) that pass the angle and
+# length gates. The cap removes them and touches no gentoo saccade.
+MAX_SACCADE_SPEED_DEGPS: float = 500.0   # TO RATIFY
+# A saccade is also dropped when more than this share of the frames in
+# its triggered window (TRIGGER_WINDOW_S around the peak) is bridged:
+# the peak itself may sit on a detection, but the trace around it is
+# interpolation and would only add straight lines to the averages.
+MAX_BRIDGED_WINDOW_SHARE: float = 0.5   # TO RATIFY
 # Positive yaw velocity in image coordinates (y down, camera overhead)
 # is a clockwise turn, i.e. a right turn for the animal.
 DIRECTION_OF_POSITIVE_VELOCITY: str = "right"
