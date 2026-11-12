@@ -116,5 +116,38 @@ python sleap/gui.py rockhopper_labels.slp
 ```
 
 Correct each suggestion (double-click a predicted instance to make it
-editable), then merge these labels with the gentoo ones so one model
-learns both species, and retrain with the `open` preset.
+editable). A suggestion left untouched counts as correct, and a frame
+cleared of all instances as one without a visible bird. Then export the
+gentoo and rockhopper projects as one package, so one model learns both
+species, and retrain with the `open` preset:
+
+```bash
+python sleap/export_training_package.py open_water_labels.slp rockhopper_labels.slp \
+    <both project dir>/penguins_train.pkg.slp --accept-predictions
+```
+
+`--accept-predictions` keeps the best untouched prediction as a label;
+leftover predictions next to a corrected instance are dropped. The same
+body plan, read from shape rather than beak colour, is what one model has
+to learn for both species; a rockhopper-only model trained from the same
+labels is the control.
+
+#### Second round: the frames the model doubts
+
+The merged model finds a rockhopper in most frames of the curated charon
+stretches but scores the beak or the tail below the gate in about a third
+of them, and those are the frames the saccade pipeline loses. The second
+round therefore samples suggestions from exactly those frames, spaced
+apart and away from frames already labelled, each seeded with the model's
+instance:
+
+```bash
+python sleap/add_low_confidence_suggestions.py rockhopper_labels.slp rockhopper_labels_round2.slp \
+    --predictions <merged predictions dir>/Rockhopper_*.predictions.slp \
+    --index-csv <video index csv> --n-frames 100                                  # sleap env
+python sleap/gui.py rockhopper_labels_round2.slp
+```
+
+The new suggestions sit in group 2 of the GUI's suggestion list; the
+first-round labels are carried over, so the round-2 project replaces the
+first one in the export command above.
