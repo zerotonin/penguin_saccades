@@ -16,6 +16,7 @@ import sys
 from collections.abc import Callable
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
@@ -255,10 +256,66 @@ def stage_manuscript(out: Path) -> None:
     print(f"[manuscript] table_1.csv and {len(figures)} figures written to {figdir}")
 
 
+def stage_qc(out: Path) -> None:
+    """Detection quality control: frame budget, scores, noise floor, rejections, timelines."""
+    import matplotlib
+    matplotlib.use("Agg")
+    from penguin_saccades import qc, viz
+
+    viz.apply_style()
+    qcdir = out / "qc"
+    trajectories = _read(out, "trajectories")
+    trajectories["qc_group"] = np.where(
+        trajectories[C.COL_DATASET] == C.DATASET_CLOSED.name,
+        "closed " + trajectories[C.COL_SPECIES],
+        trajectories["source_file"].str.split(".").str[0],
+    )
+    saccades = None
+    if (out / FILES["saccades"]).exists():
+        files = trajectories[[C.COL_TRAJECTORY, "source_file"]].drop_duplicates()
+        saccades = _read(out, "saccades").merge(files, on=C.COL_TRAJECTORY, how="left")
+    budget, scores, jitter, movies = [], [], [], []
+    for path, reader, spec, threshold, species in tqdm(_pose_sources(), desc="qc"):
+        pose = reader(path)
+        tag = {"movie": path.name, C.COL_DATASET: spec.name, C.COL_SPECIES: species}
+        budget.append({**tag, **qc.frame_budget(pose, spec, threshold)})
+        scores.append(qc.keypoint_scores(pose, path.name.split(".")[0]))
+        jitter.append({**tag, **qc.yaw_jitter(pose, threshold, spec.frame_rate_hz)})
+        movies.append((path.name, pose[f"{C.HEAD_VECTOR[0]}_x"].notna().to_numpy(), spec.frame_rate_hz))
+    if budget:
+        budget_table = pd.DataFrame(budget)
+        fig, ax = matplotlib.pyplot.subplots(figsize=(C.FIGURE_SIZE_A4_LANDSCAPE[0], 4.0))
+        qc.plot_frame_budget(budget_table, ax=ax)
+        viz.save_figure(fig, "qc_frame_budget", qcdir, budget_table)
+        matplotlib.pyplot.close(fig)
+        score_table = pd.concat(scores, ignore_index=True)
+        fig, axes = matplotlib.pyplot.subplots(1, len(C.DLC_KEYPOINTS), figsize=C.FIGURE_SIZE_A4_LANDSCAPE, sharey=True)
+        qc.plot_keypoint_scores(score_table, C.SLEAP_SCORE_THRESHOLD, axes=axes)
+        viz.save_figure(fig, "qc_keypoint_scores", qcdir, score_table)
+        matplotlib.pyplot.close(fig)
+        pd.DataFrame(jitter).to_csv(qcdir / "qc_yaw_jitter.csv", index=False)
+        fig, axes = matplotlib.pyplot.subplots(len(movies), 1, squeeze=False, gridspec_kw={"hspace": 1.2},
+                                               figsize=(C.FIGURE_SIZE_A4_LANDSCAPE[0], 0.9 * len(movies) + 0.8))
+        qc.plot_detection_timeline(movies, trajectories, saccades, axes=axes)
+        viz.save_figure(fig, "qc_detection_timeline", qcdir, qc.timeline_runs(movies, trajectories))
+        matplotlib.pyplot.close(fig)
+    fig, ax = matplotlib.pyplot.subplots(figsize=C.FIGURE_SIZE_A4_LANDSCAPE)
+    _, noise = qc.plot_noise_floor(trajectories, ax=ax)
+    viz.save_figure(fig, "qc_noise_floor", qcdir, noise)
+    matplotlib.pyplot.close(fig)
+    rejections = qc.saccade_rejections(trajectories, FRAME_RATES)
+    fig, ax = matplotlib.pyplot.subplots(figsize=C.FIGURE_SIZE_DOUBLE)
+    qc.plot_rejections(rejections, ax=ax)
+    viz.save_figure(fig, "qc_saccade_rejections", qcdir, rejections)
+    matplotlib.pyplot.close(fig)
+    qc.rejection_counts(rejections).to_csv(qcdir / "qc_saccade_rejection_counts.csv", index=False)
+    print(f"[qc] {len(budget)} pose files, {len(rejections)} raw peaks -> {qcdir}")
+
+
 # ┌────────────────────────────────────────────────────────────┐
 # │ Entry point  « argparse »                                  │
 # └────────────────────────────────────────────────────────────┘
-STAGES = {"ingest": stage_ingest, "saccades": stage_saccades, "isi": stage_isi,
+STAGES = {"ingest": stage_ingest, "saccades": stage_saccades, "qc": stage_qc, "isi": stage_isi,
           "stats": stage_stats, "plots": stage_plots, "manuscript": stage_manuscript}
 
 
@@ -307,6 +364,20 @@ def _open_sources() -> list[OpenSource]:
         for p in sleap_files
     ]
     sources += [(p, load_open_trajectory, process_open_trajectory) for p in charon if p.stem not in posed]
+    return sources
+
+
+PoseSource = tuple[Path, Callable[[Path], pd.DataFrame], C.DatasetSpec, float, str]
+
+
+def _pose_sources() -> list[PoseSource]:
+    """Every file the pose route reads, with its reader, data set, score gate and species."""
+    sources: list[PoseSource] = [
+        (path, reader, C.DATASET_OPEN_POSE, C.SLEAP_SCORE_THRESHOLD, species_from_filename(path))
+        for path, reader, processor in _open_sources() if processor is process_open_pose_trajectory
+    ]
+    pose_files, reader, threshold = _closed_pose_files()
+    sources += [(path, reader, C.DATASET_CLOSED, threshold, C.CLOSED_SPECIES) for path in pose_files]
     return sources
 
 

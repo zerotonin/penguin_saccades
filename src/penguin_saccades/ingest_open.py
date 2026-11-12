@@ -99,7 +99,7 @@ def process_open_pose_trajectory(
     """
     threshold = C.SLEAP_SCORE_THRESHOLD if score_threshold is None else score_threshold
     gated = gate_likelihood(df_pose, threshold=threshold)
-    gated = _mask_outside_water(gated, spec)
+    gated = mask_outside_water(gated, spec)
     px_per_m = C.OPEN_MOVIE_SIZE_PX[0] / (spec.image_width_px * spec.m_per_px)
     return pose_to_trajectory(gated, spec, px_per_m)
 
@@ -166,7 +166,7 @@ def _parse_line(line: str, polygon: PolygonPath | None) -> tuple[int, dict | Non
     return frame, best
 
 
-def _mask_outside_water(gated: pd.DataFrame, spec: C.DatasetSpec) -> pd.DataFrame:
+def mask_outside_water(gated: pd.DataFrame, spec: C.DatasetSpec) -> pd.DataFrame:
     """NaN every keypoint of frames whose neck lies outside the water ROI."""
     polygon = _relative_polygon(C.OPEN_WATER_ROI_PX, (spec.image_width_px, spec.image_height_px))
     width, height = C.OPEN_MOVIE_SIZE_PX

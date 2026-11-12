@@ -52,7 +52,7 @@ template.
 ## Quickstart
 
 ```bash
-penguin-saccades all            # ingest -> saccades -> isi -> stats -> plots -> manuscript
+penguin-saccades all            # ingest -> saccades -> qc -> isi -> stats -> plots -> manuscript
 penguin-saccades saccades       # rerun one stage after changing a constant
 ```
 
@@ -62,12 +62,27 @@ Each stage reads the CSV written by its predecessor in `output_dir`:
 |------------|-------------------------------------------------------------------------|
 | `ingest`   | `trajectories.csv` (one row per frame, both data sets, shared schema)   |
 | `saccades` | `saccades.csv` (body and head, typed), `intervals.csv` (body/head/any)  |
+| `qc`       | `qc/qc_frame_budget` (frames per movie through every gate of the pose route), `qc_keypoint_scores`, `qc_yaw_jitter.csv`, `qc_noise_floor` (yaw velocity under the thresholds), `qc_saccade_rejections` (which rule drops each raw peak), `qc_detection_timeline` (detected, usable and bridged frames per movie) |
 | `isi`      | `saccade_content.csv`, `interval_content.csv`, `saccade_budget.csv`, `head_body_compensation.csv`, `isi_chunks.csv` |
 | `stats`    | `summary_tables.csv` (n, median, bootstrap CI), `pairwise_tests.csv` (Fisher resampling, BH-FDR) |
 | `plots`    | `figures/*.svg|png|csv`                                                 |
 | `manuscript` | `manuscript/table_1.csv`, `manuscript/fig{1e,2,3,4,5}_*` and `supp1_*` as SVG, PNG and CSV; every figure is species-based and pools both cameras (marker shape = camera, 25 fps traces resampled onto the 60 fps grid, one pair of y-limits for all triggered averages) |
 
 Every analysis constant lives in `src/penguin_saccades/constants.py`.
+
+To see what the detector and the gates did on a stretch of movie, render
+an overlay clip (needs the `video` extra, `pip install -e ".[video]"`):
+
+```bash
+penguin-saccades-overlay <movie.mp4> <open_sleap_dir>/<movie>.analysis.h5 \
+    --start 4500 --end 4760 --out overlays/<movie>_f4500-4760.mp4
+```
+
+The clip follows the bird at a third of real time, draws every SLEAP
+instance (the one the ingest keeps in colour, low-score keypoints
+hollow), and badges each frame with the pipeline's verdict from the
+profile's `output_dir`: usable, bridged or rejected, plus the saccade it
+lies in. A PNG contact sheet of eight frames is written next to the mp4.
 
 ## Parameters to ratify before the rerun
 
@@ -80,7 +95,9 @@ manuscript. Each is a single constant; change it there and rerun.
 | `DATASET_OPEN.smoothing_sigma_s`     | 0.10 s        | from the smoothing sweep (results/qc)            |
 | `OPEN_POSE_SMOOTHING_SIGMA_S`        | 0.05 s        | data set 1 from SLEAP poses; head saccade count is 343 / 144 / 22 at 0.03 / 0.05 / 0.10 s, so this needs a decision |
 | `DATASET_CLOSED.smoothing_sigma_s`   | 0.04 s        | one frame at 25 fps; 0.10 s erases head saccades |
-| `MAX_HEAD_BODY_ANGLE_DEG`            | 90            | skeleton gate against keypoint jumps between birds |
+| `MAX_HEAD_BODY_ANGLE_DEG`            | 60            | skeleton gate against beak-tail swaps and misplaced beaks; gentoo open-water frames have p95 at 50 |
+| `MAX_BRIDGED_WINDOW_SHARE`           | 0.5           | a saccade whose triggered window is more than half bridged is dropped |
+| `MAX_SACCADE_SPEED_DEGPS`            | 500           | no gentoo peak exceeds 475 deg/s; faster rockhopper peaks are whole-skeleton reversals (legacy 3000) |
 | `MAX_GAP_FRAMES`                     | 10            | ratified: keypoint and detection gaps up to 10 frames are bridged, longer ones split segments |
 | `SACCADE_VELOCITY_THRESHOLDS_DEGPS`  | head 200, body 100 | ratified: the body yaw velocity has no saccade mode, 100 deg/s is where it leaves the head distribution (legacy 180/200/250 for both) |
 | `ASSOCIATION_WINDOW_S`               | 1.0 s         | head-body pairing window, not stated in legacy   |
