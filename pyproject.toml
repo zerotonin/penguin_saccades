@@ -41,6 +41,7 @@ dev = ["pytest>=7.0", "pytest-cov", "ruff>=0.6", "sphinx", "sphinx-rtd-theme"]
 
 [project.scripts]
 penguin-saccades = "penguin_saccades.cli:main"
+penguin-saccades-overlay = "penguin_saccades.viz_overlay:main"
 
 [project.urls]
 Repository = "https://github.com/zerotonin/penguin_saccades"
